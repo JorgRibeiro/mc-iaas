@@ -1,6 +1,9 @@
 from fastapi import FastAPI, HTTPException
 
-from jorge_agent.services.libvirt_service import get_hypervisor_status
+from jorge_agent.services.libvirt_service import (
+    get_hypervisor_status,
+    list_instances,
+)
 
 app = FastAPI(
     title="Jorge Agent",
@@ -31,4 +34,16 @@ def hypervisor_health():
         raise HTTPException(
             status_code=503,
             detail=f"Hypervisor unavailable: {exc}",
+        )
+
+
+@app.get("/instances")
+def get_instances():
+    try:
+        return list_instances()
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Unable to list instances: {exc}",
         )
