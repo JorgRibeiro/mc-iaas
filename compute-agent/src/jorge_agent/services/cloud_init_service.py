@@ -239,9 +239,11 @@ def create_cloud_init_artifacts(
         )
 
     instance_dir.mkdir(
-        parents=True,
-        mode=0o750,
+    parents=True,
+    mode=0o755,
     )
+
+    instance_dir.chmod(0o755)
 
     user_data_path = instance_dir / "user-data"
     meta_data_path = instance_dir / "meta-data"

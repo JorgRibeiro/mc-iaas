@@ -58,16 +58,10 @@ def define_instance_domain(
         raise RuntimeError("Could not connect to libvirt")
 
     try:
-        try:
-            conn.lookupByName(instance.name)
-
+        if _find_domain(conn, instance.name) is not None:
             raise FileExistsError(
                 f"Domain already exists: {instance.name}"
             )
-
-        except libvirt.libvirtError:
-            pass
-
         domain_xml = f"""
         <domain type="kvm">
           <name>{escape(instance.name)}</name>
@@ -144,10 +138,9 @@ def undefine_instance_domain(name: str) -> None:
         raise RuntimeError("Could not connect to libvirt")
 
     try:
-        try:
-            domain = conn.lookupByName(name)
+        domain = _find_domain(conn, name)
 
-        except libvirt.libvirtError:
+        if domain is None:
             return
 
         if domain.isActive():
