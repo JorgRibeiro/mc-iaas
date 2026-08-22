@@ -2,16 +2,19 @@
 name = "jorge-agent"
 version = "0.1.0"
 description = "Compute Node Agent for MC-IaaS"
-requires-python = ">=3.12"
+requires-python = ">=3.11"
 
 dependencies = [
     "fastapi",
     "uvicorn[standard]",
     "pydantic",
-    "libvirt-python",
 ]
 
 [project.optional-dependencies]
+compute = [
+    "libvirt-python",
+]
+
 dev = [
     "pytest",
     "httpx",
