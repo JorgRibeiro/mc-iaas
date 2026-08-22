@@ -1,5 +1,4 @@
-
-project]
+[project]
 name = "jorge-agent"
 version = "0.1.0"
 description = "Compute Node Agent for MC-IaaS"
