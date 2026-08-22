@@ -94,3 +94,18 @@ class InstanceResponse(BaseModel):
     vcpus: int
 
     runtime: RuntimeAllocation | None = None
+
+
+class InstanceCreateResponse(BaseModel):
+    name: str
+    state: InstanceState
+
+    vm_username: str
+    memory_mb: int
+    vcpus: int
+    minecraft_version: str
+
+    runtime: RuntimeAllocation | None = None
+
+    # Só é preenchido quando o agente gera a senha.
+    generated_password: str | None = None
