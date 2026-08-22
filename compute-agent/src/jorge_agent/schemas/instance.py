@@ -1,6 +1,14 @@
 from enum import Enum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, SecretStr, field_validator
+
+
+RESERVED_USERNAMES = {
+    "root",
+    "minecraft",
+    "libvirt-qemu",
+}
+
 
 class InstanceState(str, Enum):
     RUNNING = "running"
@@ -19,6 +27,14 @@ class InstanceCreate(BaseModel):
         pattern=r"^[a-zA-Z0-9][a-zA-Z0-9_-]*$",
     )
 
+    vm_username: str = Field(
+        min_length=1,
+        max_length=32,
+        pattern=r"^[a-z_][a-z0-9_-]*$",
+    )
+
+    vm_password: SecretStr | None = None
+
     memory_mb: int = Field(
         default=2048,
         ge=512,
@@ -34,6 +50,34 @@ class InstanceCreate(BaseModel):
     minecraft_version: str = "26.2"
 
     accept_eula: bool = False
+
+    @field_validator("vm_username")
+    @classmethod
+    def validate_vm_username(cls, username: str) -> str:
+        if username in RESERVED_USERNAMES:
+            raise ValueError(
+                f"username '{username}' is reserved by the platform"
+            )
+
+        return username
+
+    @field_validator("vm_password")
+    @classmethod
+    def validate_vm_password(
+        cls,
+        password: SecretStr | None,
+    ) -> SecretStr | None:
+        if password is None:
+            return None
+
+        raw_password = password.get_secret_value()
+
+        if len(raw_password) < 12:
+            raise ValueError(
+                "password must contain at least 12 characters"
+            )
+
+        return password
 
 
 class RuntimeAllocation(BaseModel):
