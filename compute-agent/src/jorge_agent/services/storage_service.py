@@ -62,15 +62,10 @@ def create_instance_storage(name: str) -> InstanceStorage:
         system_xml = f"""
         <volume>
           <name>{escape(system_name)}</name>
-
-          <capacity unit="bytes">
-            {SYSTEM_DISK_BYTES}
-          </capacity>
-
+          <capacity unit="bytes">{SYSTEM_DISK_BYTES}</capacity>
           <target>
             <format type="qcow2"/>
           </target>
-
           <backingStore>
             <path>{escape(str(BASE_IMAGE))}</path>
             <format type="qcow2"/>
@@ -86,15 +81,8 @@ def create_instance_storage(name: str) -> InstanceStorage:
         data_xml = f"""
         <volume>
           <name>{escape(data_name)}</name>
-
-          <capacity unit="bytes">
-            {DATA_DISK_BYTES}
-          </capacity>
-
-          <allocation unit="bytes">
-            0
-          </allocation>
-
+          <capacity unit="bytes">{DATA_DISK_BYTES}</capacity>
+          <allocation unit="bytes">0</allocation>
           <target>
             <format type="raw"/>
           </target>
