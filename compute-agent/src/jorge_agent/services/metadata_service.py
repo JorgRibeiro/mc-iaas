@@ -20,6 +20,7 @@ def save_instance_metadata(instance: InstanceCreate, data_volume: str) -> None:
 
     data = {
         "name": instance.name,
+        "vm_username": instance.vm_username,
         "minecraft_version": instance.minecraft_version,
         "memory_mb": instance.memory_mb,
         "vcpus": instance.vcpus,
