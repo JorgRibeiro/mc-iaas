@@ -1,5 +1,9 @@
 import libvirt
-from jorge_agent.schemas.instance import InstanceState
+from jorge_agent.schemas.instance import (
+    InstanceResponse,
+    InstanceState,
+    RuntimeAllocation,
+)
 
 LIBVIRT_URI = "qemu:///system"
 
@@ -42,3 +46,34 @@ def map_domain_state(state: int) -> InstanceState:
         state,
         InstanceState.UNKNOWN,
     )
+
+def list_instances() -> list[InstanceResponse]:
+    conn = libvirt.open(LIBVIRT_URI)
+
+    if conn is None:
+        raise RuntimeError("Não foi possível conectar ao libvirt")
+
+    try:
+        instances = []
+
+        for domain in conn.listAllDomains():
+            info = domain.info()
+
+            state = map_domain_state(info[0])
+            memory_mb = info[1] // 1024
+            vcpus = info[3]
+
+            instances.append(
+                InstanceResponse(
+                    name=domain.name(),
+                    state=state,
+                    memory_mb=memory_mb,
+                    vcpus=vcpus,
+                    runtime=None,
+                )
+            )
+
+        return instances
+
+    finally:
+        conn.close()
