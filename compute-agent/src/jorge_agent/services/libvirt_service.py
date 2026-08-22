@@ -1,4 +1,5 @@
 import libvirt
+from jorge_agent.schemas.instance import InstanceState
 
 LIBVIRT_URI = "qemu:///system"
 
@@ -24,3 +25,20 @@ def get_hypervisor_status() -> dict:
         }
     finally:
         conn.close()
+
+
+def map_domain_state(state: int) -> InstanceState:
+    state_map = {
+        libvirt.VIR_DOMAIN_RUNNING: InstanceState.RUNNING,
+        libvirt.VIR_DOMAIN_BLOCKED: InstanceState.RUNNING,
+        libvirt.VIR_DOMAIN_PAUSED: InstanceState.PAUSED,
+        libvirt.VIR_DOMAIN_SHUTDOWN: InstanceState.STOPPING,
+        libvirt.VIR_DOMAIN_SHUTOFF: InstanceState.STOPPED,
+        libvirt.VIR_DOMAIN_CRASHED: InstanceState.ERROR,
+        libvirt.VIR_DOMAIN_PMSUSPENDED: InstanceState.PAUSED,
+    }
+
+    return state_map.get(
+        state,
+        InstanceState.UNKNOWN,
+    )
