@@ -12,6 +12,15 @@ from jorge_agent.services.credential_service import ResolvedCredential
 
 CLOUD_INIT_ROOT = Path("/srv/mc-iaas/cloud-init")
 
+MINECRAFT_SERVER_URLS = {
+    "26.2": {
+        "url": (
+            "https://piston-data.mojang.com/v1/objects/"
+            "823e2250d24b3ddac457a60c92a6a941943fcd6a/server.jar"
+        ),
+        "sha1": "823e2250d24b3ddac457a60c92a6a941943fcd6a",
+    }
+}
 
 @dataclass(frozen=True)
 class CloudInitArtifacts:
@@ -24,6 +33,61 @@ class CloudInitArtifacts:
 def _hash_password(password: str) -> str:
     return sha512_crypt.hash(password)
 
+def _minecraft_bootstrap_script() -> str:
+    return """#!/usr/bin/env bash
+set -euo pipefail
+
+CONF="/etc/mc-iaas-minecraft.conf"
+DATA_DIR="/srv/minecraft"
+
+source "$CONF"
+
+if [ "$EULA_ACCEPTED" != "true" ]; then
+    echo "Minecraft EULA was not accepted."
+    exit 1
+fi
+
+mkdir -p "$DATA_DIR"
+
+if [ -f "$DATA_DIR/server.jar" ]; then
+    if ! echo "${SERVER_JAR_SHA1}  ${DATA_DIR}/server.jar" | sha1sum -c - >/dev/null 2>&1; then
+        rm -f "$DATA_DIR/server.jar"
+    fi
+fi
+
+if [ ! -f "$DATA_DIR/server.jar" ]; then
+    curl -fL "$SERVER_JAR_URL" -o "$DATA_DIR/server.jar"
+    echo "${SERVER_JAR_SHA1}  ${DATA_DIR}/server.jar" | sha1sum -c -
+fi
+
+echo "eula=true" > "$DATA_DIR/eula.txt"
+
+chown -R 2000:2000 "$DATA_DIR"
+"""
+
+
+def _minecraft_systemd_service() -> str:
+    return """[Unit]
+Description=MC-IaaS Minecraft Server
+Wants=network-online.target
+After=network-online.target
+RequiresMountsFor=/srv/minecraft
+
+[Service]
+Type=simple
+User=minecraft
+Group=minecraft
+WorkingDirectory=/srv/minecraft
+EnvironmentFile=/etc/mc-iaas-minecraft.conf
+ExecStartPre=+/usr/local/sbin/bootstrap-minecraft
+ExecStart=/usr/bin/java -Xms512M -Xmx1500M -jar /srv/minecraft/server.jar nogui
+Restart=on-failure
+RestartSec=10
+SuccessExitStatus=0 143
+
+[Install]
+WantedBy=multi-user.target
+"""
 
 def _build_user_data(
     instance: InstanceCreate,
@@ -31,11 +95,29 @@ def _build_user_data(
 ) -> dict:
     password_hash = _hash_password(credential.password)
 
+    minecraft_release = MINECRAFT_SERVER_URLS.get(
+        instance.minecraft_version
+    )
+
+    if minecraft_release is None:
+        raise ValueError(
+            f"Unsupported Minecraft version: "
+            f"{instance.minecraft_version}"
+        )
+
+    minecraft_config = (
+        f'MINECRAFT_VERSION="{instance.minecraft_version}"\n'
+        f'SERVER_JAR_URL="{minecraft_release["url"]}"\n'
+        f'SERVER_JAR_SHA1="{minecraft_release["sha1"]}"\n'
+        f'EULA_ACCEPTED="{str(instance.accept_eula).lower()}"\n'
+    )
+
     return {
         "hostname": instance.name,
         "manage_etc_hosts": True,
         "disable_root": True,
         "ssh_pwauth": True,
+
         "users": [
             {
                 "name": credential.username,
@@ -46,10 +128,30 @@ def _build_user_data(
                 "passwd": password_hash,
             }
         ],
+
         "packages": [
             "openjdk-25-jre-headless",
             "curl",
         ],
+
+        "write_files": [
+            {
+                "path": "/etc/mc-iaas-minecraft.conf",
+                "permissions": "0644",
+                "content": minecraft_config,
+            },
+            {
+                "path": "/usr/local/sbin/bootstrap-minecraft",
+                "permissions": "0755",
+                "content": _minecraft_bootstrap_script(),
+            },
+            {
+                "path": "/etc/systemd/system/minecraft.service",
+                "permissions": "0644",
+                "content": _minecraft_systemd_service(),
+            },
+        ],
+
         "runcmd": [
             [
                 "sh",
@@ -57,6 +159,7 @@ def _build_user_data(
                 "getent group minecraft >/dev/null "
                 "|| groupadd -g 2000 minecraft",
             ],
+
             [
                 "sh",
                 "-c",
@@ -66,8 +169,56 @@ def _build_user_data(
                 "-s /usr/sbin/nologin "
                 "-M minecraft",
             ],
+
+            [
+                "sh",
+                "-c",
+                "mkdir -p /srv/minecraft",
+            ],
+
+            [
+                "sh",
+                "-c",
+                "blkid /dev/vdc >/dev/null 2>&1 "
+                "|| mkfs.ext4 -F -L minecraft-data /dev/vdc",
+            ],
+
+            [
+                "sh",
+                "-c",
+                'UUID="$(blkid -s UUID -o value /dev/vdc)" && '
+                'grep -q "$UUID" /etc/fstab '
+                '|| echo "UUID=$UUID /srv/minecraft ext4 defaults,nofail 0 2" '
+                ">> /etc/fstab",
+            ],
+
+            [
+                "sh",
+                "-c",
+                "mountpoint -q /srv/minecraft "
+                "|| mount /srv/minecraft",
+            ],
+
+            [
+                "sh",
+                "-c",
+                "chown 2000:2000 /srv/minecraft",
+            ],
+
+            [
+                "systemctl",
+                "daemon-reload",
+            ],
+
+            [
+                "systemctl",
+                "enable",
+                "--now",
+                "minecraft.service",
+            ],
         ],
-        "final_message": "MC-IaaS cloud-init completed",
+
+        "final_message": "MC-IaaS Minecraft bootstrap completed",
     }
 
 

@@ -10,6 +10,15 @@ from jorge_agent.services.storage_service import InstanceStorage
 
 LIBVIRT_URI = "qemu:///system"
 
+def _find_domain(
+    conn: libvirt.virConnect,
+    name: str,
+) -> libvirt.virDomain | None:
+    for domain in conn.listAllDomains():
+        if domain.name() == name:
+            return domain
+
+    return None
 
 def domain_exists(name: str) -> bool:
     conn = libvirt.open(LIBVIRT_URI)
@@ -18,12 +27,7 @@ def domain_exists(name: str) -> bool:
         raise RuntimeError("Could not connect to libvirt")
 
     try:
-        try:
-            conn.lookupByName(name)
-            return True
-
-        except libvirt.libvirtError:
-            return False
+        return _find_domain(conn, name) is not None
 
     finally:
         conn.close()
