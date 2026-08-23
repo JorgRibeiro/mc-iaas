@@ -5,6 +5,7 @@ from jorge_agent.services.instance_service import (
     start_instance,
     stop_instance,
     restart_instance,
+    delete_instance,
 )
 
 from jorge_agent.services.libvirt_service import (
@@ -15,7 +16,8 @@ from jorge_agent.services.libvirt_service import (
 from jorge_agent.schemas.instance import (
     InstanceCreate,
     InstanceCreateResponse,
-    InstanceActionResponse
+    InstanceActionResponse,
+    InstanceDeleteResponse,
 )
 
 
@@ -180,4 +182,36 @@ def post_instance_restart(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Instance restart failed: {exc}",
+        ) from exc
+
+@app.delete(
+    "/instances/{name}",
+    response_model=InstanceDeleteResponse,
+)
+def delete_instance_endpoint(
+    name: str,
+    delete_data: bool = False,
+) -> InstanceDeleteResponse:
+    try:
+        return delete_instance(
+            name=name,
+            delete_data=delete_data,
+        )
+
+    except FileNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+    except TimeoutError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail=str(exc),
+        ) from exc
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Instance deletion failed: {exc}",
         ) from exc
