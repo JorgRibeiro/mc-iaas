@@ -4,6 +4,7 @@ from jorge_agent.services.instance_service import (
     create_instance, 
     start_instance,
     stop_instance,
+    restart_instance,
 )
 
 from jorge_agent.services.libvirt_service import (
@@ -151,4 +152,32 @@ def post_instance_stop(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Instance stop failed: {exc}",
+        ) from exc
+
+@app.post(
+    "/instances/{name}/restart",
+    response_model=InstanceActionResponse,
+)
+def post_instance_restart(
+    name: str,
+) -> InstanceActionResponse:
+    try:
+        return restart_instance(name)
+
+    except FileNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Instance restart failed: {exc}",
         ) from exc

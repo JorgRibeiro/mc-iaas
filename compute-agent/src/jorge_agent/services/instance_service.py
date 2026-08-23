@@ -20,6 +20,7 @@ from jorge_agent.services.domain_service import (
     undefine_instance_domain,
     start_instance_domain,
     stop_instance_domain,
+    restart_instance_domain,
 )
 
 from jorge_agent.services.metadata_service import (
@@ -35,6 +36,7 @@ from jorge_agent.services.storage_service import (
 from jorge_agent.services.runtime_service import (
     prepare_instance_runtime,
     release_instance_runtime,
+    get_instance_runtime,
 )
 
 def create_instance(
@@ -154,4 +156,27 @@ def stop_instance(
         name=name,
         state=InstanceState.STOPPED,
         runtime=None,
+    )
+
+def restart_instance(
+    name: str,
+) -> InstanceActionResponse:
+    if not domain_exists(name):
+        raise FileNotFoundError(
+            f"Instance not found: {name}"
+        )
+
+    runtime = get_instance_runtime(name)
+
+    if runtime is None:
+        raise RuntimeError(
+            f"Instance has no active runtime: {name}"
+        )
+
+    restart_instance_domain(name)
+
+    return InstanceActionResponse(
+        name=name,
+        state=InstanceState.RUNNING,
+        runtime=runtime,
     )
