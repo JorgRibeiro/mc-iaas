@@ -19,6 +19,7 @@ from jorge_agent.services.domain_service import (
     domain_exists,
     undefine_instance_domain,
     start_instance_domain,
+    stop_instance_domain,
 )
 
 from jorge_agent.services.metadata_service import (
@@ -136,3 +137,21 @@ def start_instance(
         # IP, porta ou NIC presos.
         release_instance_runtime(name)
         raise
+
+def stop_instance(
+    name: str,
+) -> InstanceActionResponse:
+    if not domain_exists(name):
+        raise FileNotFoundError(
+            f"Instance not found: {name}"
+        )
+
+    stop_instance_domain(name)
+
+    release_instance_runtime(name)
+
+    return InstanceActionResponse(
+        name=name,
+        state=InstanceState.STOPPED,
+        runtime=None,
+    )
