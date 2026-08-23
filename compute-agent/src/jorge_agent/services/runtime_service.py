@@ -491,3 +491,56 @@ def release_instance_runtime(name: str) -> None:
 
     finally:
         conn.close()
+
+def get_instance_runtime(
+    name: str,
+) -> RuntimeAllocation | None:
+    mac = instance_mac(name)
+
+    conn = libvirt.open(LIBVIRT_URI)
+
+    if conn is None:
+        raise RuntimeError(
+            "Could not connect to libvirt"
+        )
+
+    try:
+        network = conn.networkLookupByName(
+            NETWORK_NAME
+        )
+
+        root = ET.fromstring(
+            network.XMLDesc(0)
+        )
+
+        for host in root.findall(".//dhcp/host"):
+            if (
+                host.get("name") != name
+                and host.get("mac") != mac
+            ):
+                continue
+
+            ip = host.get("ip")
+
+            slot = next(
+                (
+                    candidate
+                    for candidate in RUNTIME_SLOTS
+                    if candidate.ip == ip
+                ),
+                None,
+            )
+
+            if slot is None:
+                return None
+
+            return RuntimeAllocation(
+                slot=slot.slot,
+                ip=slot.ip,
+                external_port=slot.external_port,
+            )
+
+        return None
+
+    finally:
+        conn.close()
