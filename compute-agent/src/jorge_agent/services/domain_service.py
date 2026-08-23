@@ -152,3 +152,34 @@ def undefine_instance_domain(name: str) -> None:
 
     finally:
         conn.close()
+
+def start_instance_domain(name: str) -> None:
+    conn = libvirt.open(LIBVIRT_URI)
+
+    if conn is None:
+        raise RuntimeError(
+            "Could not connect to libvirt"
+        )
+
+    try:
+        domain = _find_domain(conn, name)
+
+        if domain is None:
+            raise FileNotFoundError(
+                f"Instance not found: {name}"
+            )
+
+        if domain.isActive():
+            raise RuntimeError(
+                f"Instance is already active: {name}"
+            )
+
+        result = domain.create()
+
+        if result != 0:
+            raise RuntimeError(
+                f"Failed to start instance: {name}"
+            )
+
+    finally:
+        conn.close()
