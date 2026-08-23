@@ -3,6 +3,7 @@ from fastapi import FastAPI, HTTPException, status
 from jorge_agent.services.instance_service import (
     create_instance, 
     start_instance,
+    stop_instance,
 )
 
 from jorge_agent.services.libvirt_service import (
@@ -116,4 +117,38 @@ def post_instance_start(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Instance start failed: {exc}",
+        ) from exc
+
+@app.post(
+    "/instances/{name}/stop",
+    response_model=InstanceActionResponse,
+)
+def post_instance_stop(
+    name: str,
+) -> InstanceActionResponse:
+    try:
+        return stop_instance(name)
+
+    except FileNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+    except TimeoutError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail=str(exc),
+        ) from exc
+
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Instance stop failed: {exc}",
         ) from exc

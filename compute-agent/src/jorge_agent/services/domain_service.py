@@ -2,6 +2,7 @@ from pathlib import Path
 from xml.sax.saxutils import escape
 
 import libvirt
+import time
 
 from jorge_agent.schemas.instance import InstanceCreate
 from jorge_agent.services.cloud_init_service import CloudInitArtifacts
@@ -180,6 +181,48 @@ def start_instance_domain(name: str) -> None:
             raise RuntimeError(
                 f"Failed to start instance: {name}"
             )
+
+    finally:
+        conn.close()
+
+def stop_instance_domain(
+    name: str,
+    timeout_seconds: int = 60,
+) -> None:
+    conn = libvirt.open(LIBVIRT_URI)
+
+    if conn is None:
+        raise RuntimeError(
+            "Could not connect to libvirt"
+        )
+
+    try:
+        domain = _find_domain(conn, name)
+
+        if domain is None:
+            raise FileNotFoundError(
+                f"Instance not found: {name}"
+            )
+
+        if not domain.isActive():
+            return
+
+        result = domain.shutdown()
+
+        if result != 0:
+            raise RuntimeError(
+                f"Failed to request shutdown: {name}"
+            )
+
+        deadline = time.monotonic() + timeout_seconds
+
+        while domain.isActive():
+            if time.monotonic() >= deadline:
+                raise TimeoutError(
+                    f"Shutdown timeout for instance: {name}"
+                )
+
+            time.sleep(1)
 
     finally:
         conn.close()
