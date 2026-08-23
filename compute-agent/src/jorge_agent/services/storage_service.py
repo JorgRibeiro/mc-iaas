@@ -138,3 +138,77 @@ def delete_instance_storage(name: str) -> None:
 
     finally:
         conn.close()
+
+
+def delete_system_disk(name: str) -> None:
+    conn = libvirt.open(LIBVIRT_URI)
+
+    if conn is None:
+        raise RuntimeError(
+            "Could not connect to libvirt"
+        )
+
+    try:
+        pool = conn.storagePoolLookupByName(
+            INSTANCE_POOL
+        )
+
+        system_name = f"{name}.qcow2"
+
+        if _volume_exists(pool, system_name):
+            pool.storageVolLookupByName(
+                system_name
+            ).delete(0)
+
+    finally:
+        conn.close()
+
+
+def delete_data_volume(name: str) -> None:
+    conn = libvirt.open(LIBVIRT_URI)
+
+    if conn is None:
+        raise RuntimeError(
+            "Could not connect to libvirt"
+        )
+
+    try:
+        pool = conn.storagePoolLookupByName(
+            VOLUME_POOL
+        )
+
+        data_name = f"{name}-data.raw"
+
+        if _volume_exists(pool, data_name):
+            pool.storageVolLookupByName(
+                data_name
+            ).delete(0)
+
+    finally:
+        conn.close()
+
+
+def data_volume_path(name: str) -> str | None:
+    conn = libvirt.open(LIBVIRT_URI)
+
+    if conn is None:
+        raise RuntimeError(
+            "Could not connect to libvirt"
+        )
+
+    try:
+        pool = conn.storagePoolLookupByName(
+            VOLUME_POOL
+        )
+
+        data_name = f"{name}-data.raw"
+
+        if not _volume_exists(pool, data_name):
+            return None
+
+        return pool.storageVolLookupByName(
+            data_name
+        ).path()
+
+    finally:
+        conn.close()
