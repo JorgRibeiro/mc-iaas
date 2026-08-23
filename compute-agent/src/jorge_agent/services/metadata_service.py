@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 
 from jorge_agent.schemas.instance import InstanceCreate
-
+from datetime import datetime, timezone
 
 METADATA_DIR = Path("/srv/mc-iaas/metadata")
 
@@ -53,3 +53,17 @@ def delete_instance_metadata(name: str) -> None:
 
     if path.exists():
         path.unlink()
+
+def mark_instance_deleted(name: str) -> None:
+    data = load_instance_metadata(name)
+
+    data["deleted"] = True
+    data["data_preserved"] = True
+    data["deleted_at"] = datetime.now(
+        timezone.utc
+    ).isoformat()
+
+    metadata_path(name).write_text(
+        json.dumps(data, indent=2),
+        encoding="utf-8",
+    )

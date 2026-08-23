@@ -3,6 +3,7 @@ from jorge_agent.schemas.instance import (
     InstanceCreateResponse,
     InstanceState,
     InstanceActionResponse,
+    InstanceDeleteResponse,
 )
 
 from jorge_agent.services.cloud_init_service import (
@@ -21,16 +22,23 @@ from jorge_agent.services.domain_service import (
     start_instance_domain,
     stop_instance_domain,
     restart_instance_domain,
+    stop_instance_domain,
+    undefine_instance_domain,
 )
 
 from jorge_agent.services.metadata_service import (
     metadata_exists,
     save_instance_metadata,
+    delete_instance_metadata,
+    mark_instance_deleted,
 )
 
 from jorge_agent.services.storage_service import (
     create_instance_storage,
     delete_instance_storage,
+    delete_system_disk,
+    delete_data_volume,
+    data_volume_path,
 )
 
 from jorge_agent.services.runtime_service import (
@@ -179,4 +187,52 @@ def restart_instance(
         name=name,
         state=InstanceState.RUNNING,
         runtime=runtime,
+    )
+
+def delete_instance(
+    name: str,
+    delete_data: bool = False,
+) -> InstanceDeleteResponse:
+    if not domain_exists(name):
+        raise FileNotFoundError(
+            f"Instance not found: {name}"
+        )
+
+    # 1. Garante que a VM esteja desligada.
+    stop_instance_domain(name)
+
+    # 2. Libera qualquer runtime ainda associado.
+    release_instance_runtime(name)
+
+    # 3. Guarda o caminho antes de qualquer remoção.
+    preserved_volume = data_volume_path(name)
+
+    # 4. Remove o domínio do libvirt.
+    undefine_instance_domain(name)
+
+    # 5. Remove artefatos descartáveis.
+    delete_cloud_init_artifacts(name)
+    delete_system_disk(name)
+
+    # 6. O volume persistente é tratado por último.
+    if delete_data:
+        delete_data_volume(name)
+        delete_instance_metadata(name)
+
+        return InstanceDeleteResponse(
+            name=name,
+            deleted=True,
+            data_preserved=False,
+            data_volume=None,
+        )
+
+    # O mundo continua existindo e guardamos metadata
+    # suficiente para um futuro restore.
+    mark_instance_deleted(name)
+
+    return InstanceDeleteResponse(
+        name=name,
+        deleted=True,
+        data_preserved=True,
+        data_volume=preserved_volume,
     )

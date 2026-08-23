@@ -114,3 +114,9 @@ class InstanceActionResponse(BaseModel):
     name: str
     state: InstanceState
     runtime: RuntimeAllocation | None = None
+
+class InstanceDeleteResponse(BaseModel):
+    name: str
+    deleted: bool
+    data_preserved: bool
+    data_volume: str | None = None
