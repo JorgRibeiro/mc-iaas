@@ -1,6 +1,9 @@
 from fastapi import FastAPI, HTTPException
 from fastapi import FastAPI, HTTPException, status
-from jorge_agent.services.instance_service import create_instance    
+from jorge_agent.services.instance_service import (
+    create_instance, 
+    start_instance,
+)
 
 from jorge_agent.services.libvirt_service import (
     get_hypervisor_status,
@@ -10,6 +13,7 @@ from jorge_agent.services.libvirt_service import (
 from jorge_agent.schemas.instance import (
     InstanceCreate,
     InstanceCreateResponse,
+    InstanceActionResponse
 )
 
 
@@ -84,4 +88,32 @@ def post_instance(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Instance creation failed: {exc}",
+        ) from exc
+
+@app.post(
+    "/instances/{name}/start",
+    response_model=InstanceActionResponse,
+)
+def post_instance_start(
+    name: str,
+) -> InstanceActionResponse:
+    try:
+        return start_instance(name)
+
+    except FileNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Instance start failed: {exc}",
         ) from exc

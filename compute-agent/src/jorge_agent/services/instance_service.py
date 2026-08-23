@@ -2,6 +2,7 @@ from jorge_agent.schemas.instance import (
     InstanceCreate,
     InstanceCreateResponse,
     InstanceState,
+    InstanceActionResponse,
 )
 
 from jorge_agent.services.cloud_init_service import (
@@ -17,6 +18,7 @@ from jorge_agent.services.domain_service import (
     define_instance_domain,
     domain_exists,
     undefine_instance_domain,
+    start_instance_domain,
 )
 
 from jorge_agent.services.metadata_service import (
@@ -29,6 +31,10 @@ from jorge_agent.services.storage_service import (
     delete_instance_storage,
 )
 
+from jorge_agent.services.runtime_service import (
+    prepare_instance_runtime,
+    release_instance_runtime,
+)
 
 def create_instance(
     instance: InstanceCreate,
@@ -104,4 +110,29 @@ def create_instance(
         if storage_created:
             delete_instance_storage(instance.name)
 
+        raise
+
+def start_instance(
+    name: str,
+) -> InstanceActionResponse:
+    if not domain_exists(name):
+        raise FileNotFoundError(
+            f"Instance not found: {name}"
+        )
+
+    runtime = prepare_instance_runtime(name)
+
+    try:
+        start_instance_domain(name)
+
+        return InstanceActionResponse(
+            name=name,
+            state=InstanceState.RUNNING,
+            runtime=runtime,
+        )
+
+    except Exception:
+        # Se o boot falhar, não podemos deixar
+        # IP, porta ou NIC presos.
+        release_instance_runtime(name)
         raise

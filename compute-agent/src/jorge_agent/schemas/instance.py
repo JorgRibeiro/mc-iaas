@@ -109,3 +109,8 @@ class InstanceCreateResponse(BaseModel):
 
     # Só é preenchido quando o agente gera a senha.
     generated_password: str | None = None
+
+class InstanceActionResponse(BaseModel):
+    name: str
+    state: InstanceState
+    runtime: RuntimeAllocation | None = None
