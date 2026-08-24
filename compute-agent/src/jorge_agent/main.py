@@ -11,6 +11,7 @@ from jorge_agent.services.instance_service import (
 from jorge_agent.services.libvirt_service import (
     get_hypervisor_status,
     list_instances,
+    get_instance,
 )
 
 from jorge_agent.schemas.instance import (
@@ -18,6 +19,7 @@ from jorge_agent.schemas.instance import (
     InstanceCreateResponse,
     InstanceActionResponse,
     InstanceDeleteResponse,
+    InstanceDetailResponse,
 )
 
 
@@ -214,4 +216,26 @@ def delete_instance_endpoint(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Instance deletion failed: {exc}",
+        ) from exc
+
+@app.get(
+    "/instances/{name}",
+    response_model=InstanceDetailResponse,
+)
+def get_instance_endpoint(
+    name: str,
+) -> InstanceDetailResponse:
+    try:
+        return get_instance(name)
+
+    except FileNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Could not get instance: {exc}",
         ) from exc
