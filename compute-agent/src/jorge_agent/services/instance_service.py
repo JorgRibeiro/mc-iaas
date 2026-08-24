@@ -87,6 +87,7 @@ def create_instance(
         cloud_init = create_cloud_init_artifacts(
             instance,
             credential,
+            secrets.rcon_password,
         )
         cloud_init_created = True
 
