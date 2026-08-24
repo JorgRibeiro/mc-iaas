@@ -18,6 +18,10 @@ from jorge_agent.services.metrics_service import (
     get_instance_metrics,
 )
 
+from jorge_agent.services.health_service import (
+    get_instance_health,
+)
+
 from jorge_agent.schemas.instance import (
     InstanceCreate,
     InstanceCreateResponse,
@@ -25,6 +29,7 @@ from jorge_agent.schemas.instance import (
     InstanceDeleteResponse,
     InstanceDetailResponse,
     InstanceMetricsResponse,
+    InstanceHealthResponse,
 )
 
 
@@ -265,4 +270,26 @@ def get_instance_metrics_endpoint(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Could not get metrics: {exc}",
+        ) from exc
+
+@app.get(
+    "/instances/{name}/health",
+    response_model=InstanceHealthResponse,
+)
+def get_instance_health_endpoint(
+    name: str,
+) -> InstanceHealthResponse:
+    try:
+        return get_instance_health(name)
+
+    except FileNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Could not get instance health: {exc}",
         ) from exc
