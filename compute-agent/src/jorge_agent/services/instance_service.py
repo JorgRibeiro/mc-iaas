@@ -47,6 +47,11 @@ from jorge_agent.services.runtime_service import (
     get_instance_runtime,
 )
 
+from jorge_agent.services.secret_service import (
+    create_instance_secrets,
+    delete_instance_secrets,
+)
+
 def create_instance(
     instance: InstanceCreate,
 ) -> InstanceCreateResponse:
@@ -70,10 +75,14 @@ def create_instance(
     storage_created = False
     cloud_init_created = False
     domain_defined = False
+    secrets_created = False
 
     try:
         storage = create_instance_storage(instance.name)
         storage_created = True
+
+        secrets = create_instance_secrets(instance.name)   
+        secrets_created = True
 
         cloud_init = create_cloud_init_artifacts(
             instance,
@@ -85,6 +94,7 @@ def create_instance(
             instance,
             storage,
             cloud_init,
+            secrets.rcon_password,
         )
         domain_defined = True
 
@@ -120,6 +130,9 @@ def create_instance(
 
         if storage_created:
             delete_instance_storage(instance.name)
+
+        if secrets_created:
+            delete_instance_secrets(instance.name)
 
         raise
 
@@ -212,8 +225,9 @@ def delete_instance(
 
     # 5. Remove artefatos descartáveis.
     delete_cloud_init_artifacts(name)
+    delete_instance_secrets(name)
     delete_system_disk(name)
-
+    
     # 6. O volume persistente é tratado por último.
     if delete_data:
         delete_data_volume(name)
