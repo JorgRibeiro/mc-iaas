@@ -1,5 +1,15 @@
-from fastapi import FastAPI, HTTPException
-from fastapi import FastAPI, HTTPException, status
+from fastapi import (
+    FastAPI,
+    HTTPException,
+    WebSocket,
+    WebSocketDisconnect,
+    status,
+)
+
+from jorge_agent.services.console_bridge import (
+    bridge_instance_console,
+)
+
 from jorge_agent.services.instance_service import (
     create_instance, 
     start_instance,
@@ -297,3 +307,37 @@ def get_instance_health_endpoint(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Could not get instance health: {exc}",
         ) from exc
+
+@app.websocket(
+    "/instances/{name}/console"
+)
+async def instance_console_websocket(
+    websocket: WebSocket,
+    name: str,
+) -> None:
+    try:
+        await bridge_instance_console(
+            name,
+            websocket,
+        )
+
+    except WebSocketDisconnect:
+        pass
+
+    except FileNotFoundError:
+        await websocket.close(
+            code=4404,
+            reason="Instance not found",
+        )
+
+    except RuntimeError as exc:
+        await websocket.close(
+            code=4409,
+            reason=str(exc),
+        )
+
+    except Exception:
+        await websocket.close(
+            code=1011,
+            reason="Console internal error",
+        )
