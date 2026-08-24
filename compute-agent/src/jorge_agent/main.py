@@ -50,6 +50,11 @@ from jorge_agent.services.rcon_service import (
     execute_rcon_command,
 )
 
+from jorge_agent.services.minecraft_console_bridge import (
+    bridge_minecraft_console,
+)
+
+
 app = FastAPI(
     title="Jorge Agent",
     description="Compute Node Agent for MC-IaaS",
@@ -385,3 +390,28 @@ def minecraft_command(
             status_code=503,
             detail=f"RCON unavailable: {exc}",
         )
+
+@app.websocket(
+    "/instances/{name}/minecraft/console"
+)
+async def minecraft_console_websocket(
+    websocket: WebSocket,
+    name: str,
+) -> None:
+    try:
+        await bridge_minecraft_console(
+            name,
+            websocket,
+        )
+
+    except WebSocketDisconnect:
+        pass
+
+    except Exception:
+        try:
+            await websocket.close(
+                code=1011,
+                reason="Minecraft console internal error",
+            )
+        except Exception:
+            pass
