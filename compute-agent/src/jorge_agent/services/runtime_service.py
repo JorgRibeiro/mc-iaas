@@ -22,6 +22,12 @@ FIREWALL_SCRIPT = Path(
 
 MINECRAFT_INTERNAL_PORT = 25565
 
+DHCP_RELEASE_SCRIPT = (
+    "/srv/mc-iaas/scripts/"
+    "release-dhcp-lease.sh"
+)
+
+
 @dataclass(frozen=True)
 class RuntimeSlot:
     slot: int
@@ -129,10 +135,34 @@ def available_runtime_slots() -> list[RuntimeSlot]:
     reserved_ips = _get_reserved_ips()
     forwarded_ports = _get_forwarded_ports()
 
+    conn = libvirt.open(LIBVIRT_URI)
+
+    if conn is None:
+        raise RuntimeError(
+            "Could not connect to libvirt"
+        )
+
+    try:
+        network = conn.networkLookupByName(
+            NETWORK_NAME
+        )
+
+        leased_ips = _get_leased_ips(
+            network
+        )
+
+    finally:
+        conn.close()
+
+    occupied_ips = (
+        reserved_ips
+        | leased_ips
+    )
+
     available = []
 
     for slot in RUNTIME_SLOTS:
-        if slot.ip in reserved_ips:
+        if slot.ip in occupied_ips:
             continue
 
         if slot.external_port in forwarded_ports:
@@ -425,6 +455,11 @@ def release_instance_runtime(name: str) -> None:
             NETWORK_NAME
         )
 
+        _release_dhcp_leases(
+        network,
+        mac,
+        )
+        
         root = ET.fromstring(
             network.XMLDesc(0)
         )
@@ -544,3 +579,41 @@ def get_instance_runtime(
 
     finally:
         conn.close()
+
+def _get_leased_ips(
+    network,
+) -> set[str]:
+    leased_ips = set()
+
+    for lease in network.DHCPLeases():
+        ip = lease.get("ipaddr")
+
+        if ip and ":" not in ip:
+            leased_ips.add(ip)
+
+    return leased_ips
+
+def _release_dhcp_leases(
+    network,
+    mac: str,
+) -> None:
+    for lease in network.DHCPLeases(mac):
+        ip = lease.get("ipaddr")
+
+        if not ip:
+            continue
+
+        # Nosso runtime é IPv4.
+        if ":" in ip:
+            continue
+
+        subprocess.run(
+            [
+                "sudo",
+                "-n",
+                DHCP_RELEASE_SCRIPT,
+                ip,
+                mac,
+            ],
+            check=True,
+        )
