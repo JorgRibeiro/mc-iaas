@@ -41,8 +41,14 @@ from jorge_agent.schemas.instance import (
     InstanceMetricsResponse,
     InstanceHealthResponse,
     InstanceSummaryResponse,
+    MinecraftCommandRequest,
+    MinecraftCommandResponse,
 )
 
+from jorge_agent.services.rcon_service import (
+    RconError,
+    execute_rcon_command,
+)
 
 app = FastAPI(
     title="Jorge Agent",
@@ -340,4 +346,42 @@ async def instance_console_websocket(
         await websocket.close(
             code=1011,
             reason="Console internal error",
+        )
+
+@app.post(
+    "/instances/{name}/minecraft/command",
+    response_model=MinecraftCommandResponse,
+)
+def minecraft_command(
+    name: str,
+    request: MinecraftCommandRequest,
+) -> MinecraftCommandResponse:
+    try:
+        response = execute_rcon_command(
+            name,
+            request.command,
+        )
+
+        return MinecraftCommandResponse(
+            name=name,
+            command=request.command,
+            response=response,
+        )
+
+    except FileNotFoundError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail=str(exc),
+        )
+
+    except RconError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=str(exc),
+        )
+
+    except OSError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"RCON unavailable: {exc}",
         )

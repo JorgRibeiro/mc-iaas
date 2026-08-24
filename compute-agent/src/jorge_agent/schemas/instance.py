@@ -196,3 +196,15 @@ class InstanceSummaryResponse(BaseModel):
     minecraft_version: str
 
     runtime: RuntimeAllocation | None = None
+
+class MinecraftCommandRequest(BaseModel):
+    command: str = Field(
+        min_length=1,
+        max_length=500,
+    )
+
+
+class MinecraftCommandResponse(BaseModel):
+    name: str
+    command: str
+    response: str
