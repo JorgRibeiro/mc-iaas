@@ -62,6 +62,26 @@ fi
 
 echo "eula=true" > "$DATA_DIR/eula.txt"
 
+PROPERTIES="$DATA_DIR/server.properties"
+
+touch "$PROPERTIES"
+
+sed -i \
+    -e '/^enable-rcon=/d' \
+    -e '/^rcon\.port=/d' \
+    -e '/^rcon\.password=/d' \
+    -e '/^broadcast-rcon-to-ops=/d' \
+    "$PROPERTIES"
+
+{
+    echo "enable-rcon=true"
+    echo "rcon.port=25575"
+    printf 'rcon.password=%s\n' "$RCON_PASSWORD"
+    echo "broadcast-rcon-to-ops=false"
+} >> "$PROPERTIES"
+
+chmod 600 "$PROPERTIES"
+
 chown -R 2000:2000 "$DATA_DIR"
 """
 
@@ -92,6 +112,7 @@ WantedBy=multi-user.target
 def _build_user_data(
     instance: InstanceCreate,
     credential: ResolvedCredential,
+    rcon_password: str,
 ) -> dict:
     password_hash = _hash_password(credential.password)
 
@@ -110,6 +131,7 @@ def _build_user_data(
         f'SERVER_JAR_URL="{minecraft_release["url"]}"\n'
         f'SERVER_JAR_SHA1="{minecraft_release["sha1"]}"\n'
         f'EULA_ACCEPTED="{str(instance.accept_eula).lower()}"\n'
+        f'RCON_PASSWORD="{rcon_password}"\n'
     )
 
     return {
@@ -137,7 +159,7 @@ def _build_user_data(
         "write_files": [
             {
                 "path": "/etc/mc-iaas-minecraft.conf",
-                "permissions": "0644",
+                "permissions": "0600",
                 "content": minecraft_config,
             },
             {
@@ -225,6 +247,7 @@ def _build_user_data(
 def create_cloud_init_artifacts(
     instance: InstanceCreate,
     credential: ResolvedCredential,
+    rcon_password: str,
 ) -> CloudInitArtifacts:
     if shutil.which("cloud-localds") is None:
         raise RuntimeError(
@@ -253,6 +276,7 @@ def create_cloud_init_artifacts(
         user_data = _build_user_data(
             instance,
             credential,
+            rcon_password,
         )
 
         user_data_text = (
