@@ -5,6 +5,7 @@ from jorge_agent.schemas.instance import (
     InstanceState,
     RuntimeAllocation,
     InstanceDetailResponse,
+    InstanceSummaryResponse,
 )
 
 from jorge_agent.services.metadata_service import (
@@ -57,11 +58,13 @@ def map_domain_state(state: int) -> InstanceState:
         InstanceState.UNKNOWN,
     )
 
-def list_instances() -> list[InstanceResponse]:
+def list_instances() -> list[InstanceSummaryResponse]:
     conn = libvirt.open(LIBVIRT_URI)
 
     if conn is None:
-        raise RuntimeError("Não foi possível conectar ao libvirt")
+        raise RuntimeError(
+            "Could not connect to libvirt"
+        )
 
     try:
         instances = []
@@ -69,17 +72,29 @@ def list_instances() -> list[InstanceResponse]:
         for domain in conn.listAllDomains():
             info = domain.info()
 
-            state = map_domain_state(info[0])
-            memory_mb = info[1] // 1024
-            vcpus = info[3]
+            metadata = load_instance_metadata(
+                domain.name()
+            )
+
+            runtime = get_instance_runtime(
+                domain.name()
+            )
 
             instances.append(
-                InstanceResponse(
+                InstanceSummaryResponse(
                     name=domain.name(),
-                    state=state,
-                    memory_mb=memory_mb,
-                    vcpus=vcpus,
-                    runtime=None,
+                    state=map_domain_state(
+                        info[0]
+                    ),
+                    vm_username=metadata[
+                        "vm_username"
+                    ],
+                    memory_mb=info[1] // 1024,
+                    vcpus=info[3],
+                    minecraft_version=metadata[
+                        "minecraft_version"
+                    ],
+                    runtime=runtime,
                 )
             )
 

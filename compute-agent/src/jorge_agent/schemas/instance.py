@@ -168,6 +168,7 @@ class InstanceMetricsResponse(BaseModel):
     storage: StorageMetrics
     network: NetworkMetrics | None = None
 
+
 class MinecraftState(str, Enum):
     STOPPED = "stopped"
     ONLINE = "online"
@@ -183,3 +184,15 @@ class InstanceHealthResponse(BaseModel):
     runtime: RuntimeAllocation | None = None
 
     minecraft_port: int = 25565
+
+
+class InstanceSummaryResponse(BaseModel):
+    name: str
+    state: InstanceState
+
+    vm_username: str
+    memory_mb: int
+    vcpus: int
+    minecraft_version: str
+
+    runtime: RuntimeAllocation | None = None

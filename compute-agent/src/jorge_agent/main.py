@@ -30,6 +30,7 @@ from jorge_agent.schemas.instance import (
     InstanceDetailResponse,
     InstanceMetricsResponse,
     InstanceHealthResponse,
+    InstanceSummaryResponse,
 )
 
 
@@ -65,16 +66,19 @@ def hypervisor_health():
         )
 
 
-@app.get("/instances")
-def get_instances():
+@app.get(
+    "/instances",
+    response_model=list[InstanceSummaryResponse],
+)
+def get_instances() -> list[InstanceSummaryResponse]:
     try:
         return list_instances()
 
     except Exception as exc:
         raise HTTPException(
-            status_code=503,
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=f"Unable to list instances: {exc}",
-        )
+        ) from exc
 
 
 @app.post(
