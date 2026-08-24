@@ -95,7 +95,6 @@ def create_instance(
             instance,
             storage,
             cloud_init,
-            secrets.rcon_password,
         )
         domain_defined = True
 
