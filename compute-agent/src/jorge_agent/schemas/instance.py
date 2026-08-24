@@ -131,3 +131,39 @@ class InstanceDetailResponse(BaseModel):
     minecraft_version: str
 
     runtime: RuntimeAllocation | None = None
+
+class CpuMetrics(BaseModel):
+    usage_percent: float | None = None
+    cpu_time_seconds: float
+    vcpus: int
+
+
+class MemoryMetrics(BaseModel):
+    configured_mb: int
+    current_mb: int
+    rss_mb: float | None = None
+
+
+class DiskMetrics(BaseModel):
+    capacity_bytes: int
+    allocation_bytes: int
+
+
+class StorageMetrics(BaseModel):
+    system: DiskMetrics | None = None
+    data: DiskMetrics | None = None
+
+
+class NetworkMetrics(BaseModel):
+    rx_bytes: int
+    tx_bytes: int
+
+
+class InstanceMetricsResponse(BaseModel):
+    name: str
+    state: InstanceState
+
+    cpu: CpuMetrics
+    memory: MemoryMetrics
+    storage: StorageMetrics
+    network: NetworkMetrics | None = None

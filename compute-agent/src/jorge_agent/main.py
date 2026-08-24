@@ -14,12 +14,17 @@ from jorge_agent.services.libvirt_service import (
     get_instance,
 )
 
+from jorge_agent.services.metrics_service import (
+    get_instance_metrics,
+)
+
 from jorge_agent.schemas.instance import (
     InstanceCreate,
     InstanceCreateResponse,
     InstanceActionResponse,
     InstanceDeleteResponse,
     InstanceDetailResponse,
+    InstanceMetricsResponse,
 )
 
 
@@ -238,4 +243,26 @@ def get_instance_endpoint(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Could not get instance: {exc}",
+        ) from exc
+
+@app.get(
+    "/instances/{name}/metrics",
+    response_model=InstanceMetricsResponse,
+)
+def get_instance_metrics_endpoint(
+    name: str,
+) -> InstanceMetricsResponse:
+    try:
+        return get_instance_metrics(name)
+
+    except FileNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Could not get metrics: {exc}",
         ) from exc
