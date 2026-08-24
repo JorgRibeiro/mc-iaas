@@ -120,3 +120,14 @@ class InstanceDeleteResponse(BaseModel):
     deleted: bool
     data_preserved: bool
     data_volume: str | None = None
+
+class InstanceDetailResponse(BaseModel):
+    name: str
+    state: InstanceState
+
+    vm_username: str
+    memory_mb: int
+    vcpus: int
+    minecraft_version: str
+
+    runtime: RuntimeAllocation | None = None

@@ -1,8 +1,18 @@
 import libvirt
+
 from jorge_agent.schemas.instance import (
     InstanceResponse,
     InstanceState,
     RuntimeAllocation,
+    InstanceDetailResponse,
+)
+
+from jorge_agent.services.metadata_service import (
+    load_instance_metadata,
+)
+
+from jorge_agent.services.runtime_service import (
+    get_instance_runtime,
 )
 
 LIBVIRT_URI = "qemu:///system"
@@ -74,6 +84,51 @@ def list_instances() -> list[InstanceResponse]:
             )
 
         return instances
+
+    finally:
+        conn.close()
+
+def get_instance(name: str) -> InstanceDetailResponse:
+    conn = libvirt.open(LIBVIRT_URI)
+
+    if conn is None:
+        raise RuntimeError(
+            "Could not connect to libvirt"
+        )
+
+    try:
+        domain = None
+
+        for candidate in conn.listAllDomains():
+            if candidate.name() == name:
+                domain = candidate
+                break
+
+        if domain is None:
+            raise FileNotFoundError(
+                f"Instance not found: {name}"
+            )
+
+        info = domain.info()
+
+        state = map_domain_state(info[0])
+        memory_mb = info[1] // 1024
+        vcpus = info[3]
+
+        metadata = load_instance_metadata(name)
+        runtime = get_instance_runtime(name)
+
+        return InstanceDetailResponse(
+            name=name,
+            state=state,
+            vm_username=metadata["vm_username"],
+            memory_mb=memory_mb,
+            vcpus=vcpus,
+            minecraft_version=metadata[
+                "minecraft_version"
+            ],
+            runtime=runtime,
+        )
 
     finally:
         conn.close()
