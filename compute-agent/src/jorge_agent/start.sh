@@ -24,26 +24,44 @@ echo
 
 echo "[1/5] Verificando rede mc-net..."
 
-if virsh net-list --name | grep -qx "mc-net"; then
+if ! virsh net-info mc-net >/dev/null 2>&1; then
+    echo "ERRO: rede mc-net não existe."
+    exit 1
+fi
+
+if virsh net-info mc-net \
+    | grep -qE '^Active:[[:space:]]+yes'; then
+
     echo "mc-net já está ativa."
+
 else
+    echo "Iniciando mc-net..."
     virsh net-start mc-net
     echo "mc-net iniciada."
 fi
 
 
 echo
+echo
 echo "[2/5] Verificando storage pools..."
 
 for pool in mc-images mc-instances mc-volumes; do
-    if virsh pool-list --name | grep -qx "$pool"; then
+    if ! virsh pool-info "$pool" >/dev/null 2>&1; then
+        echo "ERRO: pool $pool não existe."
+        exit 1
+    fi
+
+    if virsh pool-info "$pool" \
+        | grep -qE '^State:[[:space:]]+running'; then
+
         echo "$pool já está ativo."
+
     else
+        echo "Iniciando $pool..."
         virsh pool-start "$pool"
         echo "$pool iniciado."
     fi
 done
-
 
 echo
 echo "[3/5] Aplicando firewall MC-IaaS..."
