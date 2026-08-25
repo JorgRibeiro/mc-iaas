@@ -4,7 +4,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-COMPUTE_AGENT_DIR="$ROOT_DIR/compute-agent"
+COMPUTE_AGENT_DIR="$ROOT_DIR"
 PYTHON="$COMPUTE_AGENT_DIR/.venv/bin/python"
 
 AGENT_URL="http://127.0.0.1:8000"
@@ -23,7 +23,7 @@ if ! curl -fsS "$AGENT_URL/health" >/dev/null 2>&1; then
     echo "Iniciando temporariamente para"
     echo "encerrar as VMs corretamente..."
 
-    "$ROOT_DIR/start"
+    "$ROOT_DIR/start.sh"
 
     sleep 1
 else
@@ -137,7 +137,7 @@ print("Estado consistente.")
 echo
 echo "[4/5] Encerrando jorge-agent..."
 
-"$ROOT_DIR/stop"
+"$ROOT_DIR/stop.sh"
 
 
 echo
