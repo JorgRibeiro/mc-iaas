@@ -1,21 +1,12 @@
 from dataclasses import dataclass
-from pathlib import Path
 from xml.sax.saxutils import escape
 
 import libvirt
 
-
-LIBVIRT_URI = "qemu:///system"
-
-INSTANCE_POOL = "mc-instances"
-VOLUME_POOL = "mc-volumes"
-
-BASE_IMAGE = Path(
-    "/srv/mc-iaas/storage/images/ubuntu-24.04-minimal-base.qcow2"
+from jorge_agent.config import (
+    LIBVIRT,
+    STORAGE,
 )
-
-SYSTEM_DISK_BYTES = 10 * 1024**3
-DATA_DISK_BYTES = 5 * 1024**3
 
 
 @dataclass(frozen=True)
@@ -29,12 +20,12 @@ def _volume_exists(pool: libvirt.virStoragePool, name: str) -> bool:
 
 
 def create_instance_storage(name: str) -> InstanceStorage:
-    if not BASE_IMAGE.exists():
+    if not STORAGE.base_image.exists():
         raise FileNotFoundError(
-            f"Base image not found: {BASE_IMAGE}"
+            f"Base image not found: {STORAGE.base_image}"
         )
 
-    conn = libvirt.open(LIBVIRT_URI)
+    conn = libvirt.open(LIBVIRT.uri)
 
     if conn is None:
         raise RuntimeError("Could not connect to libvirt")
@@ -43,8 +34,12 @@ def create_instance_storage(name: str) -> InstanceStorage:
     data_volume = None
 
     try:
-        instance_pool = conn.storagePoolLookupByName(INSTANCE_POOL)
-        volume_pool = conn.storagePoolLookupByName(VOLUME_POOL)
+        instance_pool = conn.storagePoolLookupByName(
+            LIBVIRT.instance_pool
+        )
+        volume_pool = conn.storagePoolLookupByName(
+            LIBVIRT.volume_pool
+        )
 
         system_name = f"{name}.qcow2"
         data_name = f"{name}-data.raw"
@@ -62,12 +57,12 @@ def create_instance_storage(name: str) -> InstanceStorage:
         system_xml = f"""
         <volume>
           <name>{escape(system_name)}</name>
-          <capacity unit="bytes">{SYSTEM_DISK_BYTES}</capacity>
+          <capacity unit="bytes">{STORAGE.system_disk_bytes}</capacity>
           <target>
             <format type="qcow2"/>
           </target>
           <backingStore>
-            <path>{escape(str(BASE_IMAGE))}</path>
+            <path>{escape(str(STORAGE.base_image))}</path>
             <format type="qcow2"/>
           </backingStore>
         </volume>
@@ -81,7 +76,7 @@ def create_instance_storage(name: str) -> InstanceStorage:
         data_xml = f"""
         <volume>
           <name>{escape(data_name)}</name>
-          <capacity unit="bytes">{DATA_DISK_BYTES}</capacity>
+          <capacity unit="bytes">{STORAGE.data_disk_bytes}</capacity>
           <allocation unit="bytes">0</allocation>
           <target>
             <format type="raw"/>
@@ -114,14 +109,18 @@ def create_instance_storage(name: str) -> InstanceStorage:
 
 
 def delete_instance_storage(name: str) -> None:
-    conn = libvirt.open(LIBVIRT_URI)
+    conn = libvirt.open(LIBVIRT.uri)
 
     if conn is None:
         raise RuntimeError("Could not connect to libvirt")
 
     try:
-        instance_pool = conn.storagePoolLookupByName(INSTANCE_POOL)
-        volume_pool = conn.storagePoolLookupByName(VOLUME_POOL)
+        instance_pool = conn.storagePoolLookupByName(
+            LIBVIRT.instance_pool
+        )
+        volume_pool = conn.storagePoolLookupByName(
+            LIBVIRT.volume_pool
+        )
 
         system_name = f"{name}.qcow2"
         data_name = f"{name}-data.raw"
@@ -141,7 +140,7 @@ def delete_instance_storage(name: str) -> None:
 
 
 def delete_system_disk(name: str) -> None:
-    conn = libvirt.open(LIBVIRT_URI)
+    conn = libvirt.open(LIBVIRT.uri)
 
     if conn is None:
         raise RuntimeError(
@@ -150,7 +149,7 @@ def delete_system_disk(name: str) -> None:
 
     try:
         pool = conn.storagePoolLookupByName(
-            INSTANCE_POOL
+            LIBVIRT.instance_pool
         )
 
         system_name = f"{name}.qcow2"
@@ -165,7 +164,7 @@ def delete_system_disk(name: str) -> None:
 
 
 def delete_data_volume(name: str) -> None:
-    conn = libvirt.open(LIBVIRT_URI)
+    conn = libvirt.open(LIBVIRT.uri)
 
     if conn is None:
         raise RuntimeError(
@@ -174,7 +173,7 @@ def delete_data_volume(name: str) -> None:
 
     try:
         pool = conn.storagePoolLookupByName(
-            VOLUME_POOL
+            LIBVIRT.volume_pool
         )
 
         data_name = f"{name}-data.raw"
@@ -189,7 +188,7 @@ def delete_data_volume(name: str) -> None:
 
 
 def data_volume_path(name: str) -> str | None:
-    conn = libvirt.open(LIBVIRT_URI)
+    conn = libvirt.open(LIBVIRT.uri)
 
     if conn is None:
         raise RuntimeError(
@@ -198,7 +197,7 @@ def data_volume_path(name: str) -> str | None:
 
     try:
         pool = conn.storagePoolLookupByName(
-            VOLUME_POOL
+            LIBVIRT.volume_pool
         )
 
         data_name = f"{name}-data.raw"
