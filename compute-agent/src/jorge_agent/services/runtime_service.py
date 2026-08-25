@@ -58,6 +58,20 @@ RUNTIME_SLOTS = (
     ),
 )
 
+class RuntimeCleanupError(RuntimeError):
+    def __init__(
+        self,
+        name: str,
+        errors: list[str],
+    ):
+        self.name = name
+        self.errors = errors
+
+        super().__init__(
+            f"Runtime cleanup failed for {name}: "
+            + "; ".join(errors)
+        )
+
 
 def instance_mac(name: str) -> str:
     digest = hashlib.sha256(
@@ -345,6 +359,8 @@ def prepare_instance_runtime(
             NETWORK_NAME
         )
 
+        errors: list[str] = []
+
         interface_xml = _interface_xml(mac)
 
         host_xml = _dhcp_host_xml(
@@ -455,10 +471,16 @@ def release_instance_runtime(name: str) -> None:
             NETWORK_NAME
         )
 
-        _release_dhcp_leases(
-        network,
-        mac,
-        )
+        try:
+            _release_dhcp_leases(
+                network,
+                mac,
+            )
+
+        except Exception as exc:
+            errors.append(
+            f"DHCP lease release failed: {exc}"
+        )       
         
         root = ET.fromstring(
             network.XMLDesc(0)
@@ -487,24 +509,39 @@ def release_instance_runtime(name: str) -> None:
             )
 
             if slot is not None:
-                _remove_port_forward(slot)
-                _apply_firewall()
+                try:
+                    _remove_port_forward(
+                        slot
+                    )
+
+                    _apply_firewall()
+
+                except Exception as exc:
+                    errors.append(
+                        f"Port-forward cleanup failed: {exc}"
+                    )
 
             host_xml = ET.tostring(
                 host_element,
                 encoding="unicode",
             )
 
-            network.update(
-                libvirt.VIR_NETWORK_UPDATE_COMMAND_DELETE,
-                libvirt.VIR_NETWORK_SECTION_IP_DHCP_HOST,
-                -1,
-                host_xml,
-                (
-                    libvirt.VIR_NETWORK_UPDATE_AFFECT_LIVE
-                    | libvirt.VIR_NETWORK_UPDATE_AFFECT_CONFIG
-                ),
-            )
+            try:
+                network.update(
+                    libvirt.VIR_NETWORK_UPDATE_COMMAND_DELETE,
+                    libvirt.VIR_NETWORK_SECTION_IP_DHCP_HOST,
+                    -1,
+                    host_xml,
+                    (
+                        libvirt.VIR_NETWORK_UPDATE_AFFECT_LIVE
+                        | libvirt.VIR_NETWORK_UPDATE_AFFECT_CONFIG
+                    ),
+                )
+
+            except Exception as exc:
+                errors.append(
+                    f"DHCP reservation cleanup failed: {exc}"
+                )
 
         domain_xml = ET.fromstring(
             domain.XMLDesc(0)
@@ -519,11 +556,23 @@ def release_instance_runtime(name: str) -> None:
         )
 
         if has_interface:
-            domain.detachDeviceFlags(
-                _interface_xml(mac),
-                libvirt.VIR_DOMAIN_AFFECT_CONFIG,
-            )
+            try:
+                domain.detachDeviceFlags(
+                    _interface_xml(mac),
+                    libvirt.VIR_DOMAIN_AFFECT_CONFIG,
+                )
 
+            except Exception as exc:
+                errors.append(
+                    f"Interface cleanup failed: {exc}"
+                )
+
+        if errors:
+            raise RuntimeCleanupError(
+                name,
+                errors,
+            )
+        
     finally:
         conn.close()
 
