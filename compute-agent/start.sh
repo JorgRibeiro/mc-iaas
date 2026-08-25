@@ -4,7 +4,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-COMPUTE_AGENT_DIR="$ROOT_DIR/compute-agent"
+COMPUTE_AGENT_DIR="$ROOT_DIR"
 VENV_DIR="$COMPUTE_AGENT_DIR/.venv"
 
 LOG_DIR="/srv/mc-iaas/logs"
