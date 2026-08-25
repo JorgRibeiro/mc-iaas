@@ -24,35 +24,50 @@ echo
 
 echo "[1/5] Verificando rede mc-net..."
 
-if ! virsh net-info mc-net >/dev/null 2>&1; then
-    echo "ERRO: rede mc-net não existe."
-    exit 1
-fi
+if "$VENV_DIR/bin/python" -c '
+import libvirt
+import sys
 
-if virsh net-list --name | grep -Fxq "mc-net"; then
+conn = libvirt.open("qemu:///system")
+
+try:
+    network = conn.networkLookupByName("mc-net")
+    sys.exit(0 if network.isActive() else 1)
+finally:
+    conn.close()
+'; then
     echo "mc-net já está ativa."
 else
     echo "Iniciando mc-net..."
-    virsh net-start mc-net
+    virsh -c qemu:///system net-start mc-net
     echo "mc-net iniciada."
 fi
 
-echo
-echo
+
 echo
 echo "[2/5] Verificando storage pools..."
 
 for pool in mc-images mc-instances mc-volumes; do
-    if ! virsh pool-info "$pool" >/dev/null 2>&1; then
-        echo "ERRO: pool $pool não existe."
-        exit 1
-    fi
+    if "$VENV_DIR/bin/python" -c '
+import libvirt
+import sys
 
-    if virsh pool-list --name | grep -Fxq "$pool"; then
+pool_name = sys.argv[1]
+
+conn = libvirt.open("qemu:///system")
+
+try:
+    pool = conn.storagePoolLookupByName(pool_name)
+    sys.exit(0 if pool.isActive() else 1)
+finally:
+    conn.close()
+' "$pool"; then
+
         echo "$pool já está ativo."
+
     else
         echo "Iniciando $pool..."
-        virsh pool-start "$pool"
+        virsh -c qemu:///system pool-start "$pool"
         echo "$pool iniciado."
     fi
 done
