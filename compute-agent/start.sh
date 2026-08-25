@@ -29,18 +29,15 @@ if ! virsh net-info mc-net >/dev/null 2>&1; then
     exit 1
 fi
 
-if virsh net-info mc-net \
-    | grep -qE '^Active:[[:space:]]+yes'; then
-
+if virsh net-list --name | grep -Fxq "mc-net"; then
     echo "mc-net já está ativa."
-
 else
     echo "Iniciando mc-net..."
     virsh net-start mc-net
     echo "mc-net iniciada."
 fi
 
-
+echo
 echo
 echo
 echo "[2/5] Verificando storage pools..."
@@ -51,11 +48,8 @@ for pool in mc-images mc-instances mc-volumes; do
         exit 1
     fi
 
-    if virsh pool-info "$pool" \
-        | grep -qE '^State:[[:space:]]+running'; then
-
+    if virsh pool-list --name | grep -Fxq "$pool"; then
         echo "$pool já está ativo."
-
     else
         echo "Iniciando $pool..."
         virsh pool-start "$pool"
