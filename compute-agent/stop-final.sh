@@ -157,9 +157,24 @@ for pool in \
     mc-instances \
     mc-images
 do
-    if virsh pool-list --name | grep -qx "$pool"; then
+    if "$PYTHON" -c '
+import libvirt
+import sys
+
+pool_name = sys.argv[1]
+
+conn = libvirt.open("qemu:///system")
+
+try:
+    pool = conn.storagePoolLookupByName(pool_name)
+    sys.exit(0 if pool.isActive() else 1)
+finally:
+    conn.close()
+' "$pool"; then
+
         echo "Desativando $pool..."
-        virsh pool-destroy "$pool"
+        virsh -c qemu:///system pool-destroy "$pool"
+
     else
         echo "$pool já está inativo."
     fi
