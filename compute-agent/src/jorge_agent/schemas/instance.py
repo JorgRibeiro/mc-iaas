@@ -2,6 +2,8 @@ from enum import Enum
 
 from pydantic import BaseModel, Field, SecretStr, field_validator
 
+from jorge_agent.config import NETWORK
+
 
 RESERVED_USERNAMES = {
     "root",
@@ -183,7 +185,7 @@ class InstanceHealthResponse(BaseModel):
 
     runtime: RuntimeAllocation | None = None
 
-    minecraft_port: int = 25565
+    minecraft_port: int = NETWORK.internal_minecraft_port
 
 
 class InstanceSummaryResponse(BaseModel):

@@ -1,44 +1,17 @@
 import json
 
 from dataclasses import dataclass
-from pathlib import Path
 
 import libvirt
 
+from jorge_agent.config import (
+    LIBVIRT,
+    NETWORK,
+    PATHS,
+    STORAGE,
+)
 from jorge_agent.services.runtime_service import (
     get_instance_runtime,
-)
-
-
-LIBVIRT_URI = "qemu:///system"
-
-NETWORK_NAME = "mc-net"
-
-INSTANCE_POOL = "mc-instances"
-DATA_POOL = "mc-volumes"
-
-BASE_IMAGE = Path(
-    "/srv/mc-iaas/storage/images/"
-    "ubuntu-24.04-minimal-base.qcow2"
-)
-
-METADATA_DIR = Path(
-    "/srv/mc-iaas/metadata"
-)
-
-PORT_FORWARD_CONFIG = Path(
-    "/srv/mc-iaas/config/"
-    "port-forwards.conf"
-)
-
-FIREWALL_SCRIPT = Path(
-    "/srv/mc-iaas/scripts/"
-    "apply-firewall.sh"
-)
-
-DHCP_RELEASE_SCRIPT = Path(
-    "/srv/mc-iaas/scripts/"
-    "release-dhcp-lease.sh"
 )
 
 
@@ -61,7 +34,7 @@ def _check_network(
 ) -> None:
     try:
         network = conn.networkLookupByName(
-            NETWORK_NAME
+            LIBVIRT.network_name
         )
 
         if not network.isActive():
@@ -69,7 +42,7 @@ def _check_network(
                 InvariantIssue(
                     code="network_inactive",
                     detail=(
-                        f"Network {NETWORK_NAME} "
+                        f"Network {LIBVIRT.network_name} "
                         "is not active"
                     ),
                 )
@@ -80,7 +53,7 @@ def _check_network(
             InvariantIssue(
                 code="network_missing",
                 detail=(
-                    f"Network {NETWORK_NAME} "
+                    f"Network {LIBVIRT.network_name} "
                     "does not exist"
                 ),
             )
@@ -123,20 +96,20 @@ def _check_pool(
 def _check_base_image(
     issues: list[InvariantIssue],
 ) -> None:
-    if not BASE_IMAGE.exists():
+    if not STORAGE.base_image.exists():
         issues.append(
             InvariantIssue(
                 code="base_image_missing",
                 detail=(
                     f"Base image missing: "
-                    f"{BASE_IMAGE}"
+                    f"{STORAGE.base_image}"
                 ),
             )
         )
 
         return
 
-    if BASE_IMAGE.stat().st_mode & 0o222:
+    if STORAGE.base_image.stat().st_mode & 0o222:
         issues.append(
             InvariantIssue(
                 code="base_image_writable",
@@ -152,8 +125,8 @@ def _check_scripts(
     issues: list[InvariantIssue],
 ) -> None:
     for script in (
-        FIREWALL_SCRIPT,
-        DHCP_RELEASE_SCRIPT,
+        NETWORK.firewall_script,
+        NETWORK.dhcp_release_script,
     ):
         if not script.exists():
             issues.append(
@@ -170,11 +143,11 @@ def _check_scripts(
 def _check_rcon_not_public(
     issues: list[InvariantIssue],
 ) -> None:
-    if not PORT_FORWARD_CONFIG.exists():
+    if not NETWORK.port_forward_config.exists():
         return
 
     for raw_line in (
-        PORT_FORWARD_CONFIG
+        NETWORK.port_forward_config
         .read_text(
             encoding="utf-8"
         )
@@ -201,12 +174,12 @@ def _check_rcon_not_public(
         except ValueError:
             continue
 
-        if internal_port == 25575:
+        if internal_port == NETWORK.rcon_port:
             issues.append(
                 InvariantIssue(
                     code="rcon_public",
                     detail=(
-                        "RCON port 25575 "
+                        f"RCON port {NETWORK.rcon_port} "
                         "must never be "
                         "publicly forwarded"
                     ),
@@ -218,7 +191,7 @@ def _check_instances(
     conn: libvirt.virConnect,
     issues: list[InvariantIssue],
 ) -> None:
-    if not METADATA_DIR.exists():
+    if not PATHS.metadata_dir.exists():
         return
 
     domains = {
@@ -228,7 +201,7 @@ def _check_instances(
     }
 
     for metadata_path in (
-        METADATA_DIR.glob("*.json")
+        PATHS.metadata_dir.glob("*.json")
     ):
         metadata = json.loads(
             metadata_path.read_text(
@@ -312,7 +285,7 @@ def check_invariants() -> InvariantReport:
     issues: list[InvariantIssue] = []
 
     conn = libvirt.open(
-        LIBVIRT_URI
+        LIBVIRT.uri
     )
 
     if conn is None:
@@ -337,13 +310,13 @@ def check_invariants() -> InvariantReport:
 
         _check_pool(
             conn,
-            INSTANCE_POOL,
+            LIBVIRT.instance_pool,
             issues,
         )
 
         _check_pool(
             conn,
-            DATA_POOL,
+            LIBVIRT.volume_pool,
             issues,
         )
 

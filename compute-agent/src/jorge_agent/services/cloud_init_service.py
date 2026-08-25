@@ -1,16 +1,14 @@
 import shutil
 import subprocess
 from dataclasses import dataclass
-from pathlib import Path
 
 import yaml
 from passlib.hash import sha512_crypt
 
+from jorge_agent.config import NETWORK, PATHS
 from jorge_agent.schemas.instance import InstanceCreate
 from jorge_agent.services.credential_service import ResolvedCredential
 
-
-CLOUD_INIT_ROOT = Path("/srv/mc-iaas/cloud-init")
 
 MINECRAFT_SERVER_URLS = {
     "26.2": {
@@ -75,7 +73,7 @@ sed -i \
 
 {
     echo "enable-rcon=true"
-    echo "rcon.port=25575"
+    echo "rcon.port={rcon_port}"
     printf 'rcon.password=%s\n' "$RCON_PASSWORD"
     echo "broadcast-rcon-to-ops=false"
 } >> "$PROPERTIES"
@@ -83,7 +81,10 @@ sed -i \
 chmod 600 "$PROPERTIES"
 
 chown -R 2000:2000 "$DATA_DIR"
-"""
+""".replace(
+        "{rcon_port}",
+        str(NETWORK.rcon_port),
+    )
 
 
 def _minecraft_systemd_service() -> str:
@@ -254,7 +255,7 @@ def create_cloud_init_artifacts(
             "cloud-localds is not installed"
         )
 
-    instance_dir = CLOUD_INIT_ROOT / instance.name
+    instance_dir = PATHS.cloud_init_root / instance.name
 
     if instance_dir.exists():
         raise FileExistsError(
@@ -340,7 +341,7 @@ def create_cloud_init_artifacts(
 
 
 def delete_cloud_init_artifacts(name: str) -> None:
-    instance_dir = CLOUD_INIT_ROOT / name
+    instance_dir = PATHS.cloud_init_root / name
 
     if instance_dir.exists():
         shutil.rmtree(instance_dir)

@@ -4,12 +4,11 @@ from xml.sax.saxutils import escape
 import libvirt
 import time
 
+from jorge_agent.config import LIBVIRT
 from jorge_agent.schemas.instance import InstanceCreate
 from jorge_agent.services.cloud_init_service import CloudInitArtifacts
 from jorge_agent.services.storage_service import InstanceStorage
 
-
-LIBVIRT_URI = "qemu:///system"
 
 def _find_domain(
     conn: libvirt.virConnect,
@@ -22,7 +21,7 @@ def _find_domain(
     return None
 
 def domain_exists(name: str) -> bool:
-    conn = libvirt.open(LIBVIRT_URI)
+    conn = libvirt.open(LIBVIRT.uri)
 
     if conn is None:
         raise RuntimeError("Could not connect to libvirt")
@@ -53,7 +52,7 @@ def define_instance_domain(
                 f"Required disk does not exist: {path}"
             )
 
-    conn = libvirt.open(LIBVIRT_URI)
+    conn = libvirt.open(LIBVIRT.uri)
 
     if conn is None:
         raise RuntimeError("Could not connect to libvirt")
@@ -133,7 +132,7 @@ def define_instance_domain(
 
 
 def undefine_instance_domain(name: str) -> None:
-    conn = libvirt.open(LIBVIRT_URI)
+    conn = libvirt.open(LIBVIRT.uri)
 
     if conn is None:
         raise RuntimeError("Could not connect to libvirt")
@@ -155,7 +154,7 @@ def undefine_instance_domain(name: str) -> None:
         conn.close()
 
 def start_instance_domain(name: str) -> None:
-    conn = libvirt.open(LIBVIRT_URI)
+    conn = libvirt.open(LIBVIRT.uri)
 
     if conn is None:
         raise RuntimeError(
@@ -189,7 +188,7 @@ def stop_instance_domain(
     name: str,
     timeout_seconds: int = 60,
 ) -> None:
-    conn = libvirt.open(LIBVIRT_URI)
+    conn = libvirt.open(LIBVIRT.uri)
 
     if conn is None:
         raise RuntimeError(
@@ -228,7 +227,7 @@ def stop_instance_domain(
         conn.close()
 
 def restart_instance_domain(name: str) -> None:
-    conn = libvirt.open(LIBVIRT_URI)
+    conn = libvirt.open(LIBVIRT.uri)
 
     if conn is None:
         raise RuntimeError(

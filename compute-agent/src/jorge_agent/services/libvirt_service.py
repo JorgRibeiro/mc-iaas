@@ -1,5 +1,6 @@
 import libvirt
 
+from jorge_agent.config import LIBVIRT
 from jorge_agent.schemas.instance import (
     InstanceResponse,
     InstanceState,
@@ -16,10 +17,8 @@ from jorge_agent.services.runtime_service import (
     get_instance_runtime,
 )
 
-LIBVIRT_URI = "qemu:///system"
-
 def get_hypervisor_status() -> dict:
-    conn = libvirt.open(LIBVIRT_URI)
+    conn = libvirt.open(LIBVIRT.uri)
 
     if conn is None:
         raise RuntimeError("Não foi possível conectar ao libvirt")
@@ -59,7 +58,7 @@ def map_domain_state(state: int) -> InstanceState:
     )
 
 def list_instances() -> list[InstanceSummaryResponse]:
-    conn = libvirt.open(LIBVIRT_URI)
+    conn = libvirt.open(LIBVIRT.uri)
 
     if conn is None:
         raise RuntimeError(
@@ -104,7 +103,7 @@ def list_instances() -> list[InstanceSummaryResponse]:
         conn.close()
 
 def get_instance(name: str) -> InstanceDetailResponse:
-    conn = libvirt.open(LIBVIRT_URI)
+    conn = libvirt.open(LIBVIRT.uri)
 
     if conn is None:
         raise RuntimeError(

@@ -1,6 +1,7 @@
 import socket
 import struct
 
+from jorge_agent.config import NETWORK
 from jorge_agent.services.runtime_service import (
     get_instance_runtime,
 )
@@ -8,8 +9,6 @@ from jorge_agent.services.secret_service import (
     load_instance_secrets,
 )
 
-
-RCON_PORT = 25575
 
 SERVERDATA_RESPONSE_VALUE = 0
 SERVERDATA_EXECCOMMAND = 2
@@ -131,7 +130,7 @@ def execute_rcon_command(
     with socket.create_connection(
         (
             runtime.ip,
-            RCON_PORT,
+            NETWORK.rcon_port,
         ),
         timeout=3,
     ) as sock:

@@ -5,10 +5,7 @@ import secrets
 from dataclasses import dataclass
 from pathlib import Path
 
-
-SECRETS_DIR = Path(
-    "/srv/mc-iaas/secrets"
-)
+from jorge_agent.config import PATHS
 
 
 @dataclass(frozen=True)
@@ -17,18 +14,18 @@ class InstanceSecrets:
 
 
 def secret_path(name: str) -> Path:
-    return SECRETS_DIR / f"{name}.json"
+    return PATHS.secrets_dir / f"{name}.json"
 
 
 def create_instance_secrets(
     name: str,
 ) -> InstanceSecrets:
-    SECRETS_DIR.mkdir(
+    PATHS.secrets_dir.mkdir(
         parents=True,
         exist_ok=True,
     )
 
-    SECRETS_DIR.chmod(0o700)
+    PATHS.secrets_dir.chmod(0o700)
 
     path = secret_path(name)
 

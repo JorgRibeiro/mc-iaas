@@ -2,13 +2,13 @@ import socket
 
 import libvirt
 
+from jorge_agent.config import LIBVIRT, NETWORK
 from jorge_agent.schemas.instance import (
     InstanceHealthResponse,
     MinecraftState,
 )
 
 from jorge_agent.services.libvirt_service import (
-    LIBVIRT_URI,
     map_domain_state,
 )
 
@@ -17,7 +17,6 @@ from jorge_agent.services.runtime_service import (
 )
 
 
-MINECRAFT_PORT = 25565
 TCP_TIMEOUT_SECONDS = 1.0
 
 
@@ -37,7 +36,7 @@ def _minecraft_port_open(
 ) -> bool:
     try:
         with socket.create_connection(
-            (ip, MINECRAFT_PORT),
+            (ip, NETWORK.internal_minecraft_port),
             timeout=TCP_TIMEOUT_SECONDS,
         ):
             return True
@@ -53,7 +52,7 @@ def _minecraft_port_open(
 def get_instance_health(
     name: str,
 ) -> InstanceHealthResponse:
-    conn = libvirt.open(LIBVIRT_URI)
+    conn = libvirt.open(LIBVIRT.uri)
 
     if conn is None:
         raise RuntimeError(

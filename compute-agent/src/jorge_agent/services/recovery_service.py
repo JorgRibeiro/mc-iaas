@@ -1,20 +1,13 @@
 import json
 
 from dataclasses import dataclass, field
-from pathlib import Path
 
 import libvirt
 
+from jorge_agent.config import LIBVIRT, PATHS
 from jorge_agent.services.runtime_service import (
     get_instance_runtime,
     release_instance_runtime,
-)
-
-
-LIBVIRT_URI = "qemu:///system"
-
-METADATA_DIR = Path(
-    "/srv/mc-iaas/metadata"
 )
 
 
@@ -37,7 +30,7 @@ def reconcile_instance_runtimes() -> RecoveryReport:
     report = RecoveryReport()
 
     conn = libvirt.open(
-        LIBVIRT_URI
+        LIBVIRT.uri
     )
 
     if conn is None:
@@ -52,11 +45,11 @@ def reconcile_instance_runtimes() -> RecoveryReport:
             in conn.listAllDomains()
         }
 
-        if not METADATA_DIR.exists():
+        if not PATHS.metadata_dir.exists():
             return report
 
         for metadata_path in (
-            METADATA_DIR.glob("*.json")
+            PATHS.metadata_dir.glob("*.json")
         ):
             try:
                 metadata = json.loads(

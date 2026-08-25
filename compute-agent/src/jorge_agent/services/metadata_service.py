@@ -1,14 +1,12 @@
 import json
 from pathlib import Path
 
+from jorge_agent.config import PATHS
 from jorge_agent.schemas.instance import InstanceCreate
 from datetime import datetime, timezone
 
-METADATA_DIR = Path("/srv/mc-iaas/metadata")
-
-
 def metadata_path(name: str) -> Path:
-    return METADATA_DIR / f"{name}.json"
+    return PATHS.metadata_dir / f"{name}.json"
 
 
 def metadata_exists(name: str) -> bool:
@@ -16,7 +14,7 @@ def metadata_exists(name: str) -> bool:
 
 
 def save_instance_metadata(instance: InstanceCreate, data_volume: str) -> None:
-    METADATA_DIR.mkdir(parents=True, exist_ok=True)
+    PATHS.metadata_dir.mkdir(parents=True, exist_ok=True)
 
     data = {
         "name": instance.name,

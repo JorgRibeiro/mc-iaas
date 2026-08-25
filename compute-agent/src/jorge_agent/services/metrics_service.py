@@ -3,6 +3,7 @@ import xml.etree.ElementTree as ET
 
 import libvirt
 
+from jorge_agent.config import LIBVIRT
 from jorge_agent.schemas.instance import (
     CpuMetrics,
     DiskMetrics,
@@ -13,13 +14,8 @@ from jorge_agent.schemas.instance import (
 )
 
 from jorge_agent.services.libvirt_service import (
-    LIBVIRT_URI,
     map_domain_state,
 )
-
-
-INSTANCE_POOL = "mc-instances"
-VOLUME_POOL = "mc-volumes"
 
 
 def _find_domain(
@@ -147,13 +143,13 @@ def _get_storage_metrics(
 ) -> StorageMetrics:
     system = _volume_metrics(
         conn,
-        INSTANCE_POOL,
+        LIBVIRT.instance_pool,
         f"{name}.qcow2",
     )
 
     data = _volume_metrics(
         conn,
-        VOLUME_POOL,
+        LIBVIRT.volume_pool,
         f"{name}-data.raw",
     )
 
@@ -210,7 +206,7 @@ def _get_network_metrics(
 def get_instance_metrics(
     name: str,
 ) -> InstanceMetricsResponse:
-    conn = libvirt.open(LIBVIRT_URI)
+    conn = libvirt.open(LIBVIRT.uri)
 
     if conn is None:
         raise RuntimeError(

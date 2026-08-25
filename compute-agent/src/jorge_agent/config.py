@@ -2,6 +2,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
+_ROOT = Path(
+    "/srv/mc-iaas"
+)
+
+
 @dataclass(frozen=True)
 class LibvirtConfig:
     uri: str = "qemu:///system"
@@ -15,13 +20,11 @@ class LibvirtConfig:
 
 @dataclass(frozen=True)
 class StorageConfig:
-    root: Path = Path(
-        "/srv/mc-iaas"
-    )
+    root: Path = _ROOT
 
-    base_image: Path = Path(
-        "/srv/mc-iaas/storage/images/"
-        "ubuntu-24.04-minimal-base.qcow2"
+    base_image: Path = (
+        _ROOT
+        / "storage/images/ubuntu-24.04-minimal-base.qcow2"
     )
 
     system_disk_bytes: int = (
@@ -38,19 +41,34 @@ class NetworkConfig:
     internal_minecraft_port: int = 25565
     rcon_port: int = 25575
 
-    port_forward_config: Path = Path(
-        "/srv/mc-iaas/config/"
-        "port-forwards.conf"
+    port_forward_config: Path = (
+        _ROOT
+        / "config/port-forwards.conf"
     )
 
-    firewall_script: Path = Path(
-        "/srv/mc-iaas/scripts/"
-        "apply-firewall.sh"
+    firewall_script: Path = (
+        _ROOT
+        / "scripts/apply-firewall.sh"
     )
 
-    dhcp_release_script: Path = Path(
-        "/srv/mc-iaas/scripts/"
-        "release-dhcp-lease.sh"
+    dhcp_release_script: Path = (
+        _ROOT
+        / "scripts/release-dhcp-lease.sh"
+    )
+
+
+@dataclass(frozen=True)
+class PathsConfig:
+    cloud_init_root: Path = (
+        _ROOT / "cloud-init"
+    )
+
+    metadata_dir: Path = (
+        _ROOT / "metadata"
+    )
+
+    secrets_dir: Path = (
+        _ROOT / "secrets"
     )
 
 
@@ -88,3 +106,4 @@ RUNTIME_SLOTS = (
 LIBVIRT = LibvirtConfig()
 STORAGE = StorageConfig()
 NETWORK = NetworkConfig()
+PATHS = PathsConfig()

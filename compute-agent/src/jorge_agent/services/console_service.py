@@ -1,7 +1,6 @@
 import libvirt
 
-
-LIBVIRT_URI = "qemu:///system"
+from jorge_agent.config import LIBVIRT
 
 
 class InstanceConsole:
@@ -12,7 +11,7 @@ class InstanceConsole:
         self.stream = None
 
     def open(self) -> None:
-        self.conn = libvirt.open(LIBVIRT_URI)
+        self.conn = libvirt.open(LIBVIRT.uri)
 
         if self.conn is None:
             raise RuntimeError(
