@@ -1,3 +1,7 @@
+import logging
+
+from contextlib import asynccontextmanager
+
 from fastapi import (
     FastAPI,
     HTTPException,
@@ -54,11 +58,79 @@ from jorge_agent.services.minecraft_console_bridge import (
     bridge_minecraft_console,
 )
 
+from jorge_agent.services.invariant_service import (
+    check_invariants,
+)
+
+from jorge_agent.services.recovery_service import (
+    reconcile_instance_runtimes,
+)
+
+logger = logging.getLogger(
+    "jorge_agent"
+)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info(
+        "Starting compute node reconciliation"
+    )
+
+    recovery = (
+        reconcile_instance_runtimes()
+    )
+
+    for name in recovery.recovered:
+        logger.warning(
+            "Recovered stale runtime: %s",
+            name,
+        )
+
+    for name, error in recovery.errors.items():
+        logger.error(
+            "Runtime recovery failed for %s: %s",
+            name,
+            error,
+        )
+
+    if recovery.errors:
+        raise RuntimeError(
+            "Compute node runtime recovery failed"
+        )
+
+    invariants = check_invariants()
+
+    if not invariants.healthy:
+        details = "; ".join(
+            (
+                f"{issue.code}"
+                + (
+                    f"[{issue.instance}]"
+                    if issue.instance
+                    else ""
+                )
+                + f": {issue.detail}"
+            )
+            for issue in invariants.issues
+        )
+
+        raise RuntimeError(
+            "Compute node invariants failed: "
+            + details
+        )
+
+    logger.info(
+        "Compute node reconciliation complete"
+    )
+
+    yield
 
 app = FastAPI(
     title="Jorge Agent",
     description="Compute Node Agent for MC-IaaS",
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 
