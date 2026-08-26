@@ -515,3 +515,4 @@ async def minecraft_console_websocket(
         except Exception:
             pass
 
+app.include_router(protected_api)
