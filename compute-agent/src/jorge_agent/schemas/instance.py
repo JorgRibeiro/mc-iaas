@@ -2,7 +2,7 @@ from enum import Enum
 
 from pydantic import BaseModel, Field, SecretStr, field_validator
 
-from jorge_agent.config import NETWORK
+from jorge_agent.config import NETWORK, QUOTAS
 
 
 RESERVED_USERNAMES = {
@@ -38,15 +38,15 @@ class InstanceCreate(BaseModel):
     vm_password: SecretStr | None = None
 
     memory_mb: int = Field(
-        default=2048,
-        ge=512,
-        le=2048,
+        default=QUOTAS.default_memory_mb,
+        ge=QUOTAS.min_memory_mb,
+        le=QUOTAS.max_memory_mb,
     )
 
     vcpus: int = Field(
-        default=1,
-        ge=1,
-        le=1,
+        default=QUOTAS.default_vcpus,
+        ge=QUOTAS.min_vcpus,
+        le=QUOTAS.max_vcpus,
     )
 
     minecraft_version: str = "26.2"

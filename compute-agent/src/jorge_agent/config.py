@@ -35,6 +35,15 @@ class StorageConfig:
         5 * 1024**3
     )
 
+@dataclass(frozen=True)
+class QuotaConfig:
+    min_memory_mb: int = 512
+    default_memory_mb: int = 2048
+    max_memory_mb: int = 2048
+
+    min_vcpus: int = 1
+    default_vcpus: int = 1
+    max_vcpus: int = 1
 
 @dataclass(frozen=True)
 class NetworkConfig:
@@ -110,8 +119,10 @@ RUNTIME_SLOTS = (
     ),
 )
 
+MAX_ACTIVE_INSTANCES = len(RUNTIME_SLOTS)
 
 LIBVIRT = LibvirtConfig()
 STORAGE = StorageConfig()
 NETWORK = NetworkConfig()
 PATHS = PathsConfig()
+QUOTAS = QuotaConfig()
