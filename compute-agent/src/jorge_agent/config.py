@@ -71,6 +71,14 @@ class PathsConfig:
         _ROOT / "secrets"
     )
 
+    run_dir: Path = (
+        _ROOT / "run"
+    )
+
+    lock_dir: Path = (
+        _ROOT / "run/locks"
+    )
+
 
 @dataclass(frozen=True)
 class RuntimeSlot:
