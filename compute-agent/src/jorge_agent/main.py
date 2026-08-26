@@ -157,7 +157,7 @@ def health():
     }
 
 
-@protected_api.app.get("/hypervisor/health")
+@protected_api.get("/hypervisor/health")
 def hypervisor_health():
     try:
         hypervisor = get_hypervisor_status()
@@ -174,7 +174,7 @@ def hypervisor_health():
         )
 
 
-@protected_api.app.get(
+@protected_api.get(
     "/instances",
     response_model=list[InstanceSummaryResponse],
 )
@@ -189,7 +189,7 @@ def get_instances() -> list[InstanceSummaryResponse]:
         ) from exc
 
 
-@protected_api.app.post(
+@protected_api.post(
     "/instances",
     response_model=InstanceCreateResponse,
     status_code=status.HTTP_201_CREATED,
@@ -218,7 +218,7 @@ def post_instance(
             detail=f"Instance creation failed: {exc}",
         ) from exc
 
-@protected_api.app.post(
+@protected_api.post(
     "/instances/{name}/start",
     response_model=InstanceActionResponse,
 )
@@ -246,7 +246,7 @@ def post_instance_start(
             detail=f"Instance start failed: {exc}",
         ) from exc
 
-@protected_api.app.post(
+@protected_api.post(
     "/instances/{name}/stop",
     response_model=InstanceActionResponse,
 )
@@ -280,7 +280,7 @@ def post_instance_stop(
             detail=f"Instance stop failed: {exc}",
         ) from exc
 
-@protected_api.app.post(
+@protected_api.post(
     "/instances/{name}/restart",
     response_model=InstanceActionResponse,
 )
@@ -308,7 +308,7 @@ def post_instance_restart(
             detail=f"Instance restart failed: {exc}",
         ) from exc
 
-@protected_api.app.delete(
+@protected_api.delete(
     "/instances/{name}",
     response_model=InstanceDeleteResponse,
 )
@@ -346,7 +346,7 @@ def delete_instance_endpoint(
             detail=f"Instance deletion failed: {exc}",
         ) from exc
 
-@protected_api.app.get(
+@protected_api.get(
     "/instances/{name}",
     response_model=InstanceDetailResponse,
 )
@@ -368,7 +368,7 @@ def get_instance_endpoint(
             detail=f"Could not get instance: {exc}",
         ) from exc
 
-@protected_api.app.get(
+@protected_api.get(
     "/instances/{name}/metrics",
     response_model=InstanceMetricsResponse,
 )
@@ -390,7 +390,7 @@ def get_instance_metrics_endpoint(
             detail=f"Could not get metrics: {exc}",
         ) from exc
 
-@protected_api.app.get(
+@protected_api.get(
     "/instances/{name}/health",
     response_model=InstanceHealthResponse,
 )
@@ -449,7 +449,7 @@ async def instance_console_websocket(
             reason="Console internal error",
         )
 
-@protected_api.app.post(
+@protected_api.post(
     "/instances/{name}/minecraft/command",
     response_model=MinecraftCommandResponse,
 )
