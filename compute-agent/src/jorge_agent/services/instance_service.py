@@ -18,6 +18,7 @@ from jorge_agent.services.credential_service import (
 from jorge_agent.services.domain_service import (
     define_instance_domain,
     domain_exists,
+    is_instance_active,
     undefine_instance_domain,
     start_instance_domain,
     stop_instance_domain,
@@ -237,11 +238,13 @@ def delete_instance(
                 f"Instance not found: {name}"
             )
 
-        # 1. Garante que a VM esteja desligada.
-        stop_instance_domain(name)
+        if is_instance_active(name):
+            raise RuntimeError(
+                f"Instance must be stopped before deletion: {name}"
+            )
 
-        with runtime_lock():   
-            # 2. Libera qualquer runtime ainda associado.
+        # 1. Libera qualquer runtime residual.
+        with runtime_lock():
             release_instance_runtime(name)
 
         # 3. Guarda o caminho antes de qualquer remoção.

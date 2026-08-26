@@ -32,6 +32,26 @@ def domain_exists(name: str) -> bool:
     finally:
         conn.close()
 
+def is_instance_active(name: str) -> bool:
+    conn = libvirt.open(LIBVIRT.uri)
+
+    if conn is None:
+        raise RuntimeError(
+            "Could not connect to libvirt"
+        )
+
+    try:
+        domain = _find_domain(conn, name)
+
+        if domain is None:
+            raise FileNotFoundError(
+                f"Instance not found: {name}"
+            )
+
+        return bool(domain.isActive())
+
+    finally:
+        conn.close()
 
 def define_instance_domain(
     instance: InstanceCreate,
