@@ -8,6 +8,13 @@ from fastapi import (
     WebSocket,
     WebSocketDisconnect,
     status,
+    APIRouter,
+    Depends,
+)
+
+from jorge_agent.services.auth_service import (
+    require_api_token,
+    require_websocket_api_token,
 )
 
 from jorge_agent.services.console_bridge import (
@@ -131,8 +138,16 @@ app = FastAPI(
     description="Compute Node Agent for MC-IaaS",
     version="0.1.0",
     lifespan=lifespan,
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
 )
 
+protected_api = APIRouter(
+    dependencies=[
+        Depends(require_api_token),
+    ],
+)
 
 @app.get("/health")
 def health():
@@ -142,7 +157,7 @@ def health():
     }
 
 
-@app.get("/hypervisor/health")
+@protected_api.app.get("/hypervisor/health")
 def hypervisor_health():
     try:
         hypervisor = get_hypervisor_status()
@@ -159,7 +174,7 @@ def hypervisor_health():
         )
 
 
-@app.get(
+@protected_api.app.get(
     "/instances",
     response_model=list[InstanceSummaryResponse],
 )
@@ -174,7 +189,7 @@ def get_instances() -> list[InstanceSummaryResponse]:
         ) from exc
 
 
-@app.post(
+@protected_api.app.post(
     "/instances",
     response_model=InstanceCreateResponse,
     status_code=status.HTTP_201_CREATED,
@@ -203,7 +218,7 @@ def post_instance(
             detail=f"Instance creation failed: {exc}",
         ) from exc
 
-@app.post(
+@protected_api.app.post(
     "/instances/{name}/start",
     response_model=InstanceActionResponse,
 )
@@ -231,7 +246,7 @@ def post_instance_start(
             detail=f"Instance start failed: {exc}",
         ) from exc
 
-@app.post(
+@protected_api.app.post(
     "/instances/{name}/stop",
     response_model=InstanceActionResponse,
 )
@@ -265,7 +280,7 @@ def post_instance_stop(
             detail=f"Instance stop failed: {exc}",
         ) from exc
 
-@app.post(
+@protected_api.app.post(
     "/instances/{name}/restart",
     response_model=InstanceActionResponse,
 )
@@ -293,7 +308,7 @@ def post_instance_restart(
             detail=f"Instance restart failed: {exc}",
         ) from exc
 
-@app.delete(
+@protected_api.app.delete(
     "/instances/{name}",
     response_model=InstanceDeleteResponse,
 )
@@ -331,7 +346,7 @@ def delete_instance_endpoint(
             detail=f"Instance deletion failed: {exc}",
         ) from exc
 
-@app.get(
+@protected_api.app.get(
     "/instances/{name}",
     response_model=InstanceDetailResponse,
 )
@@ -353,7 +368,7 @@ def get_instance_endpoint(
             detail=f"Could not get instance: {exc}",
         ) from exc
 
-@app.get(
+@protected_api.app.get(
     "/instances/{name}/metrics",
     response_model=InstanceMetricsResponse,
 )
@@ -375,7 +390,7 @@ def get_instance_metrics_endpoint(
             detail=f"Could not get metrics: {exc}",
         ) from exc
 
-@app.get(
+@protected_api.app.get(
     "/instances/{name}/health",
     response_model=InstanceHealthResponse,
 )
@@ -403,6 +418,9 @@ def get_instance_health_endpoint(
 async def instance_console_websocket(
     websocket: WebSocket,
     name: str,
+    _: None = Depends(
+        require_websocket_api_token
+    ),
 ) -> None:
     try:
         await bridge_instance_console(
@@ -431,7 +449,7 @@ async def instance_console_websocket(
             reason="Console internal error",
         )
 
-@app.post(
+@protected_api.app.post(
     "/instances/{name}/minecraft/command",
     response_model=MinecraftCommandResponse,
 )
@@ -475,6 +493,9 @@ def minecraft_command(
 async def minecraft_console_websocket(
     websocket: WebSocket,
     name: str,
+    _: None = Depends(
+        require_websocket_api_token
+    ),
 ) -> None:
     try:
         await bridge_minecraft_console(
@@ -493,3 +514,4 @@ async def minecraft_console_websocket(
             )
         except Exception:
             pass
+

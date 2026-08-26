@@ -9,6 +9,37 @@ PYTHON="$COMPUTE_AGENT_DIR/.venv/bin/python"
 
 AGENT_URL="http://127.0.0.1:8000"
 
+TOKEN_FILE="/srv/mc-iaas/secrets/agent-api-token"
+
+
+read_api_token() {
+    if [[ ! -f "$TOKEN_FILE" ]]; then
+        echo "ERRO: token da API não encontrado:" >&2
+        echo "  $TOKEN_FILE" >&2
+        return 1
+    fi
+
+    local token
+    token="$(<"$TOKEN_FILE")"
+
+    if [[ -z "$token" ]]; then
+        echo "ERRO: token da API está vazio." >&2
+        return 1
+    fi
+
+    printf '%s' "$token"
+}
+
+
+api_curl() {
+    local token
+    token="$(read_api_token)"
+
+    curl \
+        -H "Authorization: Bearer $token" \
+        "$@"
+}
+
 
 echo "======================================"
 echo "      MC-IaaS Final Shutdown"
@@ -35,8 +66,8 @@ echo
 echo "[2/5] Encerrando instâncias..."
 
 INSTANCES="$(
-    curl -fsS "$AGENT_URL/instances"
-)"
+    api_curl -fsS "$AGENT_URL/instances"
+)"  
 
 mapfile -t INSTANCE_DATA < <(
     printf '%s' "$INSTANCES" |
@@ -81,7 +112,7 @@ for entry in "${INSTANCE_DATA[@]}"; do
 
             echo "Encerrando graciosamente..."
 
-            curl -fsS -X POST \
+            api_curl -fsS -X POST \
                 "$AGENT_URL/instances/$NAME/stop"
 
             echo
@@ -90,7 +121,7 @@ for entry in "${INSTANCE_DATA[@]}"; do
         *)
             echo "Encerrando graciosamente..."
 
-            curl -fsS -X POST \
+            api_curl -fsS -X POST \
                 "$AGENT_URL/instances/$NAME/stop"
 
             echo

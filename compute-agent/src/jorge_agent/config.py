@@ -80,6 +80,10 @@ class PathsConfig:
         _ROOT / "secrets"
     )
 
+    agent_api_token_file: Path = (
+        _ROOT / "secrets/agent-api-token"
+    )
+
     run_dir: Path = (
         _ROOT / "run"
     )

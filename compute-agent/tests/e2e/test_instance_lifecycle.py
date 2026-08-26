@@ -3,6 +3,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from typing import Any
+from pathlib import Path
 
 import httpx
 import pytest
@@ -41,6 +42,13 @@ API_URL = os.getenv(
     "http://127.0.0.1:8000",
 ).rstrip("/")
 
+API_TOKEN_FILE = Path(
+    os.getenv(
+        "MC_IAAS_API_TOKEN_FILE",
+        "/srv/mc-iaas/secrets/agent-api-token",
+    )
+)
+
 REQUEST_TIMEOUT_SECONDS = float(
     os.getenv(
         "MC_IAAS_REQUEST_TIMEOUT_SECONDS",
@@ -73,6 +81,34 @@ SENSITIVE_KEYS = {
     "rcon_password",
     "vm_password",
 }
+
+
+def _load_api_token() -> str:
+    env_token = os.getenv(
+        "MC_IAAS_API_TOKEN"
+    )
+
+    if env_token:
+        return env_token
+
+    try:
+        token = API_TOKEN_FILE.read_text(
+            encoding="utf-8",
+        ).strip()
+    except OSError as exc:
+        pytest.fail(
+            "Could not load Compute Agent API token "
+            f"from {API_TOKEN_FILE}: {exc}",
+            pytrace=False,
+        )
+
+    if not token:
+        pytest.fail(
+            "Compute Agent API token is empty",
+            pytrace=False,
+        )
+
+    return token
 
 
 @dataclass
@@ -305,6 +341,11 @@ def e2e_context() -> E2EContext:
     with httpx.Client(
         base_url=API_URL,
         timeout=REQUEST_TIMEOUT_SECONDS,
+        headers={
+            "Authorization": (
+                f"Bearer {_load_api_token()}"
+            ),
+        },
     ) as client:
         context = E2EContext(
             client=client,
