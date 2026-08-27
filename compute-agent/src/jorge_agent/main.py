@@ -43,6 +43,14 @@ from jorge_agent.services.health_service import (
     get_instance_health,
 )
 
+from jorge_agent.schemas.node import (
+    NodeHealthResponse,
+)
+
+from jorge_agent.services.node_health_service import (
+    get_node_health,
+)
+
 from jorge_agent.schemas.instance import (
     InstanceCreate,
     InstanceCreateResponse,
@@ -514,5 +522,19 @@ async def minecraft_console_websocket(
             )
         except Exception:
             pass
+
+@protected_api.get(
+    "/node/health",
+    response_model=NodeHealthResponse,
+)
+def node_health() -> NodeHealthResponse:
+    try:
+        return get_node_health()
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Could not evaluate node health: {exc}",
+        ) from exc
 
 app.include_router(protected_api)
