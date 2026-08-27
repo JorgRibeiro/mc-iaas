@@ -17,6 +17,7 @@ class NodeComponentHealth(BaseModel):
 class NodeCapacity(BaseModel):
     max_active_instances: int
     active_instances: int
+    occupied_runtime_slots: int
     available_slots: int
 
 

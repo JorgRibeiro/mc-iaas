@@ -11,8 +11,15 @@ from jorge_agent.schemas.node import (
 
 from jorge_agent.services.invariant_service import (
     InvariantIssue,
-    InvariantSeverity,
     check_invariants,
+)
+
+from jorge_agent.schemas.instance import (
+    InstanceState,
+)
+
+from jorge_agent.services.libvirt_service import (
+    list_instances,
 )
 
 from jorge_agent.services.runtime_service import (
@@ -95,24 +102,46 @@ def get_node_health() -> NodeHealthResponse:
         issues
     )
 
-    available_slots = (
-        len(available_runtime_slots())
-        if invariant_report.healthy
-        else 0
+    ready = not invariant_report.has_critical
+
+    # Capacidade física observada no runtime.
+    actual_available_slots = len(
+        available_runtime_slots()
     )
 
-    active_instances = (
+    occupied_runtime_slots = (
         MAX_ACTIVE_INSTANCES
-        - available_slots
+        - actual_available_slots
+    )
+
+    # Quantidade real de instâncias ativas.
+    instances = list_instances()
+
+    active_instances = sum(
+        1
+        for instance in instances
+        if instance.state
+        in {
+            InstanceState.RUNNING,
+            InstanceState.PAUSED,
+        }
+    )
+
+    # Se o nó estiver inconsistente, não anunciamos
+    # capacidade utilizável ao scheduler, mesmo que
+    # fisicamente ainda existam slots livres.
+    available_slots = (
+        actual_available_slots
+        if ready
+        else 0
     )
 
     capacity = NodeCapacity(
         max_active_instances=MAX_ACTIVE_INSTANCES,
         active_instances=active_instances,
+        occupied_runtime_slots=occupied_runtime_slots,
         available_slots=available_slots,
     )
-
-    ready = not invariant_report.has_critical
 
     if invariant_report.has_critical:
         node_status = NodeStatus.UNHEALTHY
