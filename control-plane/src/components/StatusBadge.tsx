@@ -58,26 +58,37 @@ function Pill({
   );
 }
 
-const nodeMap: Record<NodeStatus, { tone: Tone; icon: LucideIcon; label: string }> = {
+const nodeMap: Record<
+  NodeStatus,
+  { tone: Tone; icon: LucideIcon; label: string }
+> = {
   healthy: { tone: "ok", icon: CheckCircle2, label: "Healthy" },
   degraded: { tone: "warn", icon: AlertTriangle, label: "Degraded" },
   unhealthy: { tone: "bad", icon: XCircle, label: "Unhealthy" },
   offline: { tone: "neutral", icon: CircleSlash, label: "Offline" },
 };
 
-export function NodeStatusBadge({ status, className }: { status: NodeStatus; className?: string }) {
+export function NodeStatusBadge({
+  status,
+  className,
+}: {
+  status: NodeStatus;
+  className?: string;
+}) {
   const conf = nodeMap[status];
   return <Pill {...conf} className={className} />;
 }
 
-const instanceMap: Record<InstanceState, { tone: Tone; icon: LucideIcon; label: string; spin?: boolean }> =
-  {
-    running: { tone: "ok", icon: Play, label: "Running" },
-    stopped: { tone: "neutral", icon: Pause, label: "Stopped" },
-    starting: { tone: "info", icon: Loader2, label: "Starting", spin: true },
-    unavailable: { tone: "bad", icon: CircleSlash, label: "Unavailable" },
-    deleting: { tone: "warn", icon: Trash2, label: "Deleting" },
-  };
+const instanceMap: Record<
+  InstanceState,
+  { tone: Tone; icon: LucideIcon; label: string; spin?: boolean }
+> = {
+  running: { tone: "ok", icon: Play, label: "Running" },
+  stopped: { tone: "neutral", icon: Pause, label: "Stopped" },
+  starting: { tone: "info", icon: Loader2, label: "Starting", spin: true },
+  unavailable: { tone: "bad", icon: CircleSlash, label: "Unavailable" },
+  deleting: { tone: "warn", icon: Trash2, label: "Deleting" },
+};
 
 export function InstanceStateBadge({
   state,
@@ -89,7 +100,10 @@ export function InstanceStateBadge({
   return <Pill {...instanceMap[state]} className={className} />;
 }
 
-const mcMap: Record<MinecraftStatus, { tone: Tone; icon: LucideIcon; label: string; spin?: boolean }> = {
+const mcMap: Record<
+  MinecraftStatus,
+  { tone: Tone; icon: LucideIcon; label: string; spin?: boolean }
+> = {
   online: { tone: "ok", icon: CheckCircle2, label: "Online" },
   offline: { tone: "neutral", icon: CircleDashed, label: "Offline" },
   starting: { tone: "info", icon: Loader2, label: "Starting", spin: true },
@@ -106,18 +120,33 @@ export function MinecraftStatusBadge({
   return <Pill {...mcMap[status]} className={className} />;
 }
 
-const healthMap: Record<HealthState, { tone: Tone; icon: LucideIcon; label: string }> = {
+const healthMap: Record<
+  HealthState,
+  { tone: Tone; icon: LucideIcon; label: string }
+> = {
   ok: { tone: "ok", icon: CheckCircle2, label: "OK" },
   warning: { tone: "warn", icon: AlertTriangle, label: "Warning" },
   error: { tone: "bad", icon: XCircle, label: "Error" },
   unknown: { tone: "neutral", icon: HelpCircle, label: "Unknown" },
 };
 
-export function HealthBadge({ state, className }: { state: HealthState; className?: string }) {
+export function HealthBadge({
+  state,
+  className,
+}: {
+  state: HealthState;
+  className?: string;
+}) {
   return <Pill {...healthMap[state]} className={className} />;
 }
 
-export function ReadyBadge({ ready, className }: { ready: boolean; className?: string }) {
+export function ReadyBadge({
+  ready,
+  className,
+}: {
+  ready: boolean;
+  className?: string;
+}) {
   return (
     <Pill
       tone={ready ? "ok" : "neutral"}

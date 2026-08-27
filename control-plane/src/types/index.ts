@@ -2,7 +2,8 @@ export type NodeStatus = "healthy" | "degraded" | "unhealthy" | "offline";
 
 export type HealthState = "ok" | "warning" | "error" | "unknown";
 
-export type InstanceState = "running" | "stopped" | "starting" | "unavailable" | "deleting";
+export type InstanceState =
+  "running" | "stopped" | "starting" | "unavailable" | "deleting";
 
 export type MinecraftStatus = "online" | "offline" | "starting" | "unknown";
 

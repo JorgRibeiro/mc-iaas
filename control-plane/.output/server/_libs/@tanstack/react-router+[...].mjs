@@ -1,5 +1,6 @@
-import { n as __toESM, t as __commonJSMin } from "../../_runtime.mjs";
-import { n as require_jsx_runtime, r as require_react } from "../react+tanstack__react-query.mjs";
+import { i as __toESM, t as __commonJSMin } from "../../_runtime.mjs";
+import { l as require_react_dom, u as require_react } from "../@floating-ui/react-dom+[...].mjs";
+import { F as require_jsx_runtime } from "../@radix-ui/react-alert-dialog+[...].mjs";
 import { r as parseHref } from "../tanstack__history.mjs";
 import { PassThrough, Readable } from "node:stream";
 import { ReadableStream as ReadableStream$1 } from "node:stream/web";
@@ -3576,11 +3577,12 @@ var BaseRootRoute = class extends BaseRoute {
 };
 //#endregion
 //#region node_modules/@tanstack/router-core/dist/esm/ssr/constants.js
+var import_jsx_runtime = require_jsx_runtime();
+require_react_dom();
 var GLOBAL_TSR = "$_TSR";
 var TSR_SCRIPT_BARRIER_ID = "$tsr-stream-barrier";
 //#endregion
 //#region node_modules/@tanstack/react-router/dist/esm/CatchBoundary.js
-var import_jsx_runtime = require_jsx_runtime();
 function CatchBoundary(props) {
 	const errorComponent = props.errorComponent ?? ErrorComponent;
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(CatchBoundaryImpl, {
@@ -4231,162 +4233,7 @@ function useRouteContext(opts) {
 	});
 }
 //#endregion
-//#region node_modules/react-dom/cjs/react-dom.production.js
-/**
-* @license React
-* react-dom.production.js
-*
-* Copyright (c) Meta Platforms, Inc. and affiliates.
-*
-* This source code is licensed under the MIT license found in the
-* LICENSE file in the root directory of this source tree.
-*/
-var require_react_dom_production = /* @__PURE__ */ __commonJSMin(((exports) => {
-	var React = require_react();
-	function formatProdErrorMessage(code) {
-		var url = "https://react.dev/errors/" + code;
-		if (1 < arguments.length) {
-			url += "?args[]=" + encodeURIComponent(arguments[1]);
-			for (var i = 2; i < arguments.length; i++) url += "&args[]=" + encodeURIComponent(arguments[i]);
-		}
-		return "Minified React error #" + code + "; visit " + url + " for the full message or use the non-minified dev environment for full errors and additional helpful warnings.";
-	}
-	function noop() {}
-	var Internals = {
-		d: {
-			f: noop,
-			r: function() {
-				throw Error(formatProdErrorMessage(522));
-			},
-			D: noop,
-			C: noop,
-			L: noop,
-			m: noop,
-			X: noop,
-			S: noop,
-			M: noop
-		},
-		p: 0,
-		findDOMNode: null
-	};
-	var REACT_PORTAL_TYPE = Symbol.for("react.portal");
-	function createPortal$1(children, containerInfo, implementation) {
-		var key = 3 < arguments.length && void 0 !== arguments[3] ? arguments[3] : null;
-		return {
-			$$typeof: REACT_PORTAL_TYPE,
-			key: null == key ? null : "" + key,
-			children,
-			containerInfo,
-			implementation
-		};
-	}
-	var ReactSharedInternals = React.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE;
-	function getCrossOriginStringAs(as, input) {
-		if ("font" === as) return "";
-		if ("string" === typeof input) return "use-credentials" === input ? input : "";
-	}
-	exports.__DOM_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE = Internals;
-	exports.createPortal = function(children, container) {
-		var key = 2 < arguments.length && void 0 !== arguments[2] ? arguments[2] : null;
-		if (!container || 1 !== container.nodeType && 9 !== container.nodeType && 11 !== container.nodeType) throw Error(formatProdErrorMessage(299));
-		return createPortal$1(children, container, null, key);
-	};
-	exports.flushSync = function(fn) {
-		var previousTransition = ReactSharedInternals.T, previousUpdatePriority = Internals.p;
-		try {
-			if (ReactSharedInternals.T = null, Internals.p = 2, fn) return fn();
-		} finally {
-			ReactSharedInternals.T = previousTransition, Internals.p = previousUpdatePriority, Internals.d.f();
-		}
-	};
-	exports.preconnect = function(href, options) {
-		"string" === typeof href && (options ? (options = options.crossOrigin, options = "string" === typeof options ? "use-credentials" === options ? options : "" : void 0) : options = null, Internals.d.C(href, options));
-	};
-	exports.prefetchDNS = function(href) {
-		"string" === typeof href && Internals.d.D(href);
-	};
-	exports.preinit = function(href, options) {
-		if ("string" === typeof href && options && "string" === typeof options.as) {
-			var as = options.as, crossOrigin = getCrossOriginStringAs(as, options.crossOrigin), integrity = "string" === typeof options.integrity ? options.integrity : void 0, fetchPriority = "string" === typeof options.fetchPriority ? options.fetchPriority : void 0;
-			"style" === as ? Internals.d.S(href, "string" === typeof options.precedence ? options.precedence : void 0, {
-				crossOrigin,
-				integrity,
-				fetchPriority
-			}) : "script" === as && Internals.d.X(href, {
-				crossOrigin,
-				integrity,
-				fetchPriority,
-				nonce: "string" === typeof options.nonce ? options.nonce : void 0
-			});
-		}
-	};
-	exports.preinitModule = function(href, options) {
-		if ("string" === typeof href) if ("object" === typeof options && null !== options) {
-			if (null == options.as || "script" === options.as) {
-				var crossOrigin = getCrossOriginStringAs(options.as, options.crossOrigin);
-				Internals.d.M(href, {
-					crossOrigin,
-					integrity: "string" === typeof options.integrity ? options.integrity : void 0,
-					nonce: "string" === typeof options.nonce ? options.nonce : void 0
-				});
-			}
-		} else options ?? Internals.d.M(href);
-	};
-	exports.preload = function(href, options) {
-		if ("string" === typeof href && "object" === typeof options && null !== options && "string" === typeof options.as) {
-			var as = options.as, crossOrigin = getCrossOriginStringAs(as, options.crossOrigin);
-			Internals.d.L(href, as, {
-				crossOrigin,
-				integrity: "string" === typeof options.integrity ? options.integrity : void 0,
-				nonce: "string" === typeof options.nonce ? options.nonce : void 0,
-				type: "string" === typeof options.type ? options.type : void 0,
-				fetchPriority: "string" === typeof options.fetchPriority ? options.fetchPriority : void 0,
-				referrerPolicy: "string" === typeof options.referrerPolicy ? options.referrerPolicy : void 0,
-				imageSrcSet: "string" === typeof options.imageSrcSet ? options.imageSrcSet : void 0,
-				imageSizes: "string" === typeof options.imageSizes ? options.imageSizes : void 0,
-				media: "string" === typeof options.media ? options.media : void 0
-			});
-		}
-	};
-	exports.preloadModule = function(href, options) {
-		if ("string" === typeof href) if (options) {
-			var crossOrigin = getCrossOriginStringAs(options.as, options.crossOrigin);
-			Internals.d.m(href, {
-				as: "string" === typeof options.as && "script" !== options.as ? options.as : void 0,
-				crossOrigin,
-				integrity: "string" === typeof options.integrity ? options.integrity : void 0
-			});
-		} else Internals.d.m(href);
-	};
-	exports.requestFormReset = function(form) {
-		Internals.d.r(form);
-	};
-	exports.unstable_batchedUpdates = function(fn, a) {
-		return fn(a);
-	};
-	exports.useFormState = function(action, initialState, permalink) {
-		return ReactSharedInternals.H.useFormState(action, initialState, permalink);
-	};
-	exports.useFormStatus = function() {
-		return ReactSharedInternals.H.useHostTransitionStatus();
-	};
-	exports.version = "19.2.8";
-}));
-//#endregion
-//#region node_modules/react-dom/index.js
-var require_react_dom = /* @__PURE__ */ __commonJSMin(((exports, module) => {
-	function checkDCE() {
-		if (typeof __REACT_DEVTOOLS_GLOBAL_HOOK__ === "undefined" || typeof __REACT_DEVTOOLS_GLOBAL_HOOK__.checkDCE !== "function") return;
-		try {
-			__REACT_DEVTOOLS_GLOBAL_HOOK__.checkDCE(checkDCE);
-		} catch (err) {
-			console.error(err);
-		}
-	}
-	checkDCE();
-	module.exports = require_react_dom_production();
-}));
-require_react_dom();
+//#region node_modules/@tanstack/react-router/dist/esm/link.js
 /**
 * Build anchor-like props for declarative navigation and preloading.
 *
@@ -14342,4 +14189,4 @@ var renderRouterToStream = async ({ request, router, responseHeaders, children }
 	throw new Error("No renderToReadableStream or renderToPipeableStream found in react-dom/server. Ensure you are using a version of react-dom that supports streaming.");
 };
 //#endregion
-export { createLRUCache as A, resolveManifestAssetLink as C, isResolvedRedirect as D, isRedirect as E, decodePath as M, rootRouteId as O, getStylesheetHref as S, executeRewriteInput as T, GLOBAL_TSR as _, replaceSsrResponse as a, createInlineCssStyleAsset as b, HeadContent as c, Outlet as d, lazyRouteComponent as f, useRouter as g, Link as h, normalizeSsrResponse as i, invariant as j, isNotFound as k, RouterProvider as l, createRootRouteWithContext as m, defineHandlerCallback as n, stripSsrResponseBody as o, createFileRoute as p, isSsrResponse as r, Scripts as s, renderRouterToStream as t, createRouter as u, TSR_SCRIPT_BARRIER_ID as v, resolveManifestCssLink as w, getScriptPreloadAttrs as x, createInlineCssPlaceholderAsset as y };
+export { isNotFound as A, getStylesheetHref as C, isRedirect as D, executeRewriteInput as E, invariant as M, decodePath as N, isResolvedRedirect as O, getScriptPreloadAttrs as S, resolveManifestCssLink as T, useRouter as _, replaceSsrResponse as a, createInlineCssPlaceholderAsset as b, HeadContent as c, Outlet as d, lazyRouteComponent as f, useNavigate as g, Link as h, normalizeSsrResponse as i, createLRUCache as j, rootRouteId as k, RouterProvider as l, createRootRouteWithContext as m, defineHandlerCallback as n, stripSsrResponseBody as o, createFileRoute as p, isSsrResponse as r, Scripts as s, renderRouterToStream as t, createRouter as u, GLOBAL_TSR as v, resolveManifestAssetLink as w, createInlineCssStyleAsset as x, TSR_SCRIPT_BARRIER_ID as y };

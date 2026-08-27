@@ -18,7 +18,13 @@ export const mockNodes: ComputeNode[] = [
     },
     health: { libvirt: "ok", network: "ok", storage: "ok", invariants: "ok" },
     metrics: {
-      cpu: { usagePercent: 31.4, cores: 8, load1m: 0.82, load5m: 0.64, load15m: 0.51 },
+      cpu: {
+        usagePercent: 31.4,
+        cores: 8,
+        load1m: 0.82,
+        load5m: 0.64,
+        load15m: 0.51,
+      },
       memory: { totalMb: 32_768, usedMb: 11_264, availableMb: 21_504 },
       rootDisk: { label: "root", totalGb: 240, usedGb: 78 },
       mcIaasDisk: { label: "mc-iaas", totalGb: 500, usedGb: 143 },
@@ -64,7 +70,8 @@ export const mockNodes: ComputeNode[] = [
         id: "inv-2",
         severity: "warning",
         code: "RUNTIME_SLOTS_UNVERIFIED",
-        detail: "Runtime slot allocation table could not be reconciled while node is offline.",
+        detail:
+          "Runtime slot allocation table could not be reconciled while node is offline.",
         timestamp: "2026-08-26T10:02:11Z",
       },
     ],

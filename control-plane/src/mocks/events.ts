@@ -8,7 +8,8 @@ export const mockEvents: PlatformEvent[] = [
     component: "lifecycle",
     event: "instance.start.completed",
     target: "survival-01",
-    message: "Instance reached running state and Minecraft service reported online.",
+    message:
+      "Instance reached running state and Minecraft service reported online.",
   },
   {
     id: "evt-02",
@@ -17,7 +18,8 @@ export const mockEvents: PlatformEvent[] = [
     component: "runtime",
     event: "instance.start.runtime_allocated",
     target: "survival-01",
-    message: "Runtime slot 1 allocated with internal address and external port mapping.",
+    message:
+      "Runtime slot 1 allocated with internal address and external port mapping.",
   },
   {
     id: "evt-03",
@@ -44,7 +46,8 @@ export const mockEvents: PlatformEvent[] = [
     component: "recovery",
     event: "recovery.completed",
     target: "JORGE",
-    message: "Recovery routine finished, node invariants back to consistent state.",
+    message:
+      "Recovery routine finished, node invariants back to consistent state.",
   },
   {
     id: "evt-06",

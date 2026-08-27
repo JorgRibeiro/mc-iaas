@@ -23,7 +23,11 @@ export function MetricBar({
       {(label || hint) && (
         <div className="flex items-baseline justify-between gap-3">
           {label && <span className="metric-label">{label}</span>}
-          {hint && <span className="tabular text-xs text-muted-foreground">{hint}</span>}
+          {hint && (
+            <span className="tabular text-xs text-muted-foreground">
+              {hint}
+            </span>
+          )}
         </div>
       )}
       <div
@@ -34,7 +38,10 @@ export function MetricBar({
         aria-valuemax={100}
         aria-label={label ?? "usage"}
       >
-        <div className={cn("h-full rounded-full transition-all", tone)} style={{ width: `${pct}%` }} />
+        <div
+          className={cn("h-full rounded-full transition-all", tone)}
+          style={{ width: `${pct}%` }}
+        />
       </div>
     </div>
   );

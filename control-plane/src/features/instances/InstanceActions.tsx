@@ -63,42 +63,78 @@ export function InstanceActions({
     <>
       {variant === "buttons" ? (
         <div className="flex flex-wrap items-center gap-2">
-          <Button size="sm" variant="outline" disabled={disabled || !canStart} onClick={() => run("start")}>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={disabled || !canStart}
+            onClick={() => run("start")}
+          >
             <Play className="h-3.5 w-3.5" /> Start
           </Button>
-          <Button size="sm" variant="outline" disabled={disabled || !canStop} onClick={() => run("stop")}>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={disabled || !canStop}
+            onClick={() => run("stop")}
+          >
             <Square className="h-3.5 w-3.5" /> Stop
           </Button>
-          <Button size="sm" variant="outline" disabled={disabled} onClick={() => setConfirm("restart")}>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={disabled}
+            onClick={() => setConfirm("restart")}
+          >
             <RotateCcw className="h-3.5 w-3.5" /> Restart
           </Button>
-          <Button size="sm" variant="destructive" disabled={disabled} onClick={() => setConfirm("delete")}>
+          <Button
+            size="sm"
+            variant="destructive"
+            disabled={disabled}
+            onClick={() => setConfirm("delete")}
+          >
             <Trash2 className="h-3.5 w-3.5" /> Delete
           </Button>
         </div>
       ) : (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" aria-label={`Actions for ${instance.name}`}>
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label={`Actions for ${instance.name}`}
+            >
               <MoreHorizontal className="h-4 w-4" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-44">
             <DropdownMenuItem
               onClick={() =>
-                void navigate({ to: "/instances/$instanceId", params: { instanceId: instance.id } })
+                void navigate({
+                  to: "/instances/$instanceId",
+                  params: { instanceId: instance.id },
+                })
               }
             >
               Open details
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem disabled={disabled || !canStart} onClick={() => run("start")}>
+            <DropdownMenuItem
+              disabled={disabled || !canStart}
+              onClick={() => run("start")}
+            >
               <Play className="h-3.5 w-3.5" /> Start
             </DropdownMenuItem>
-            <DropdownMenuItem disabled={disabled || !canStop} onClick={() => run("stop")}>
+            <DropdownMenuItem
+              disabled={disabled || !canStop}
+              onClick={() => run("stop")}
+            >
               <Square className="h-3.5 w-3.5" /> Stop
             </DropdownMenuItem>
-            <DropdownMenuItem disabled={disabled} onClick={() => setConfirm("restart")}>
+            <DropdownMenuItem
+              disabled={disabled}
+              onClick={() => setConfirm("restart")}
+            >
               <RotateCcw className="h-3.5 w-3.5" /> Restart
             </DropdownMenuItem>
             <DropdownMenuSeparator />
@@ -113,11 +149,16 @@ export function InstanceActions({
         </DropdownMenu>
       )}
 
-      <AlertDialog open={confirm !== null} onOpenChange={(open) => !open && setConfirm(null)}>
+      <AlertDialog
+        open={confirm !== null}
+        onOpenChange={(open) => !open && setConfirm(null)}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{confirmCopy.title}</AlertDialogTitle>
-            <AlertDialogDescription>{confirmCopy.description}</AlertDialogDescription>
+            <AlertDialogDescription>
+              {confirmCopy.description}
+            </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>

@@ -40,7 +40,11 @@ function nowIso() {
 
 function pushEvent(e: Omit<PlatformEvent, "id" | "timestamp">) {
   state.events = [
-    { ...e, id: `evt-${Math.random().toString(36).slice(2, 9)}`, timestamp: nowIso() },
+    {
+      ...e,
+      id: `evt-${Math.random().toString(36).slice(2, 9)}`,
+      timestamp: nowIso(),
+    },
     ...state.events,
   ];
 }
@@ -54,7 +58,9 @@ function recomputeCapacity() {
       continue;
     }
     const active = state.instances.filter(
-      (i) => i.computeNodeId === node.id && (i.state === "running" || i.state === "starting"),
+      (i) =>
+        i.computeNodeId === node.id &&
+        (i.state === "running" || i.state === "starting"),
     );
     node.capacity.activeInstances = active.length;
     node.capacity.occupiedRuntimeSlots = active.filter((i) => i.runtime).length;
@@ -98,22 +104,43 @@ export const mockControlPlaneClient: ControlPlaneClient = {
   async getOverview(): Promise<OverviewSummary> {
     recomputeCapacity();
     const online = state.nodes.filter((n) => n.status !== "offline");
-    const slotsTotal = state.nodes.reduce((acc, n) => acc + n.capacity.maxActiveInstances, 0);
-    const slotsUsed = state.nodes.reduce((acc, n) => acc + n.capacity.occupiedRuntimeSlots, 0);
-    const memoryTotalMb = online.reduce((acc, n) => acc + n.metrics.memory.totalMb, 0);
-    const memoryUsedMb = online.reduce((acc, n) => acc + n.metrics.memory.usedMb, 0);
-    const storageTotalGb = state.nodes.reduce((acc, n) => acc + n.metrics.mcIaasDisk.totalGb, 0);
-    const storageUsedGb = state.nodes.reduce((acc, n) => acc + n.metrics.mcIaasDisk.usedGb, 0);
+    const slotsTotal = state.nodes.reduce(
+      (acc, n) => acc + n.capacity.maxActiveInstances,
+      0,
+    );
+    const slotsUsed = state.nodes.reduce(
+      (acc, n) => acc + n.capacity.occupiedRuntimeSlots,
+      0,
+    );
+    const memoryTotalMb = online.reduce(
+      (acc, n) => acc + n.metrics.memory.totalMb,
+      0,
+    );
+    const memoryUsedMb = online.reduce(
+      (acc, n) => acc + n.metrics.memory.usedMb,
+      0,
+    );
+    const storageTotalGb = state.nodes.reduce(
+      (acc, n) => acc + n.metrics.mcIaasDisk.totalGb,
+      0,
+    );
+    const storageUsedGb = state.nodes.reduce(
+      (acc, n) => acc + n.metrics.mcIaasDisk.usedGb,
+      0,
+    );
     const cpu = online.length
-      ? online.reduce((acc, n) => acc + n.metrics.cpu.usagePercent, 0) / online.length
+      ? online.reduce((acc, n) => acc + n.metrics.cpu.usagePercent, 0) /
+        online.length
       : 0;
     const alerts = state.nodes.reduce((acc, n) => acc + n.invariants.length, 0);
 
     return delay({
-      status: alerts === 0 ? "operational" : online.length ? "degraded" : "down",
+      status:
+        alerts === 0 ? "operational" : online.length ? "degraded" : "down",
       nodesOnline: online.length,
       nodesTotal: state.nodes.length,
-      activeWorkloads: state.instances.filter((i) => i.state === "running").length,
+      activeWorkloads: state.instances.filter((i) => i.state === "running")
+        .length,
       slotsUsed,
       slotsTotal,
       cpuUsagePercent: Number(cpu.toFixed(1)),
@@ -197,7 +224,8 @@ export const mockControlPlaneClient: ControlPlaneClient = {
       component: "lifecycle",
       event: "instance.created",
       target: instance.name,
-      message: "Instance definition accepted and scheduled to compute node (mock).",
+      message:
+        "Instance definition accepted and scheduled to compute node (mock).",
     });
     recomputeCapacity();
     return delay(structuredClone(instance));
@@ -218,7 +246,8 @@ export const mockControlPlaneClient: ControlPlaneClient = {
       component: "runtime",
       event: "instance.start.runtime_allocated",
       target: instance.name,
-      message: "Runtime slot allocated with internal address and external port mapping.",
+      message:
+        "Runtime slot allocated with internal address and external port mapping.",
     });
     pushEvent({
       level: "info",

@@ -14,8 +14,17 @@ import {
 import { useState, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
-import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  Sheet,
+  SheetContent,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { CreateInstanceDialog } from "@/features/instances/CreateInstanceDialog";
 import { cn } from "@/lib/utils";
 import { overviewQuery } from "@/services/queries";
@@ -61,7 +70,9 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
             <Boxes className="h-4 w-4" aria-hidden />
           </span>
           <span className="leading-tight">
-            <span className="block text-sm font-semibold tracking-tight">MC-IaaS</span>
+            <span className="block text-sm font-semibold tracking-tight">
+              MC-IaaS
+            </span>
             <span className="block text-[10px] tracking-widest text-muted-foreground uppercase">
               Control Plane
             </span>
@@ -142,7 +153,12 @@ export function AppShell({ children }: { children: ReactNode }) {
         <header className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b border-border bg-background/85 px-4 backdrop-blur md:px-6">
           <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
             <SheetTrigger asChild>
-              <Button variant="ghost" size="icon" className="lg:hidden" aria-label="Open navigation">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="lg:hidden"
+                aria-label="Open navigation"
+              >
                 <Menu className="h-4 w-4" />
               </Button>
             </SheetTrigger>
@@ -152,7 +168,9 @@ export function AppShell({ children }: { children: ReactNode }) {
             </SheetContent>
           </Sheet>
 
-          <span className="text-sm font-semibold tracking-tight lg:hidden">MC-IaaS</span>
+          <span className="text-sm font-semibold tracking-tight lg:hidden">
+            MC-IaaS
+          </span>
 
           <div className="ml-auto flex items-center gap-2">
             {!!data?.alerts && (

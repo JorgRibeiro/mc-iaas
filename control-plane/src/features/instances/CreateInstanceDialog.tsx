@@ -13,7 +13,13 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { CURRENT_MINECRAFT_VERSION } from "@/mocks/instances";
@@ -52,7 +58,12 @@ export function CreateInstanceDialog({
       : null;
 
   const canSubmit =
-    name.length > 1 && !nameError && !memoryError && acceptEula && !!selectedNode && !createInstance.isPending;
+    name.length > 1 &&
+    !nameError &&
+    !memoryError &&
+    acceptEula &&
+    !!selectedNode &&
+    !createInstance.isPending;
 
   function reset() {
     setName("");
@@ -97,8 +108,8 @@ export function CreateInstanceDialog({
         <DialogHeader>
           <DialogTitle>Create instance</DialogTitle>
           <DialogDescription>
-            Provisions a Minecraft workload on an available compute node. This build simulates
-            creation locally.
+            Provisions a Minecraft workload on an available compute node. This
+            build simulates creation locally.
           </DialogDescription>
         </DialogHeader>
 
@@ -112,13 +123,19 @@ export function CreateInstanceDialog({
               onChange={(e) => setName(e.target.value.toLowerCase())}
               aria-invalid={!!nameError}
             />
-            {nameError && <p className="text-xs text-destructive">{nameError}</p>}
+            {nameError && (
+              <p className="text-xs text-destructive">{nameError}</p>
+            )}
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label htmlFor="vm-user">VM username</Label>
-              <Input id="vm-user" value={vmUsername} onChange={(e) => setVmUsername(e.target.value)} />
+              <Input
+                id="vm-user"
+                value={vmUsername}
+                onChange={(e) => setVmUsername(e.target.value)}
+              />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="node">Compute node</Label>
@@ -157,14 +174,21 @@ export function CreateInstanceDialog({
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="mcv">Minecraft version</Label>
-              <Input id="mcv" value={CURRENT_MINECRAFT_VERSION} readOnly disabled />
+              <Input
+                id="mcv"
+                value={CURRENT_MINECRAFT_VERSION}
+                readOnly
+                disabled
+              />
             </div>
           </div>
           <p className="text-xs text-muted-foreground">
-            Limits in this environment: {MIN_MEMORY}–{MAX_MEMORY} MiB memory, exactly 1 vCPU, Minecraft{" "}
-            {CURRENT_MINECRAFT_VERSION}.
+            Limits in this environment: {MIN_MEMORY}–{MAX_MEMORY} MiB memory,
+            exactly 1 vCPU, Minecraft {CURRENT_MINECRAFT_VERSION}.
           </p>
-          {memoryError && <p className="text-xs text-destructive">{memoryError}</p>}
+          {memoryError && (
+            <p className="text-xs text-destructive">{memoryError}</p>
+          )}
 
           <Separator />
 
@@ -177,7 +201,11 @@ export function CreateInstanceDialog({
                 Credentials are never displayed or stored by the console.
               </p>
             </div>
-            <Switch id="autopass" checked={autoPassword} onCheckedChange={setAutoPassword} />
+            <Switch
+              id="autopass"
+              checked={autoPassword}
+              onCheckedChange={setAutoPassword}
+            />
           </div>
 
           <label className="flex cursor-pointer items-start gap-2.5 rounded-md border border-border px-3 py-2.5">

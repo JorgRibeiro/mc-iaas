@@ -1,8 +1,21 @@
 import { Link } from "@tanstack/react-router";
 
 import { NodeStatusBadge, ReadyBadge } from "@/components/StatusBadge";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { formatGb, formatMb, formatPercent, formatUptime, relativeTime } from "@/lib/format";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  formatGb,
+  formatMb,
+  formatPercent,
+  formatUptime,
+  relativeTime,
+} from "@/lib/format";
 import type { ComputeNode } from "@/types";
 
 export function NodesTable({ nodes }: { nodes: ComputeNode[] }) {
@@ -44,20 +57,27 @@ export function NodesTable({ nodes }: { nodes: ComputeNode[] }) {
               <TableCell>
                 <ReadyBadge ready={node.ready} />
               </TableCell>
-              <TableCell className="tabular text-right">{node.capacity.activeInstances}</TableCell>
               <TableCell className="tabular text-right">
-                {node.capacity.occupiedRuntimeSlots}/{node.capacity.maxActiveInstances}
+                {node.capacity.activeInstances}
+              </TableCell>
+              <TableCell className="tabular text-right">
+                {node.capacity.occupiedRuntimeSlots}/
+                {node.capacity.maxActiveInstances}
               </TableCell>
               <TableCell className="tabular text-right">
                 {formatPercent(node.metrics.cpu.usagePercent)}
               </TableCell>
               <TableCell className="tabular text-xs">
-                {formatMb(node.metrics.memory.usedMb)} / {formatMb(node.metrics.memory.totalMb)}
+                {formatMb(node.metrics.memory.usedMb)} /{" "}
+                {formatMb(node.metrics.memory.totalMb)}
               </TableCell>
               <TableCell className="tabular text-xs">
-                {formatGb(node.metrics.mcIaasDisk.usedGb)} / {formatGb(node.metrics.mcIaasDisk.totalGb)}
+                {formatGb(node.metrics.mcIaasDisk.usedGb)} /{" "}
+                {formatGb(node.metrics.mcIaasDisk.totalGb)}
               </TableCell>
-              <TableCell className="tabular text-right">{formatUptime(node.uptimeSeconds)}</TableCell>
+              <TableCell className="tabular text-right">
+                {formatUptime(node.uptimeSeconds)}
+              </TableCell>
               <TableCell className="text-right text-xs text-muted-foreground">
                 {relativeTime(node.lastSeen)}
               </TableCell>

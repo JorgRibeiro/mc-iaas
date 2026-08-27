@@ -1,4 +1,8 @@
-import { queryOptions, useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  queryOptions,
+  useMutation,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { toast } from "sonner";
 
 import { controlPlane } from "@/services";
@@ -89,35 +93,42 @@ export function useInstanceAction() {
         delete: "deleted",
       };
       toast.success(`Instance ${variables.name} ${labels[variables.action]}`, {
-        description: "Mock lifecycle transition — no compute node was contacted.",
+        description:
+          "Mock lifecycle transition — no compute node was contacted.",
       });
     },
-    onError: (error: Error) => toast.error("Lifecycle action failed", { description: error.message }),
+    onError: (error: Error) =>
+      toast.error("Lifecycle action failed", { description: error.message }),
   });
 }
 
 export function useCreateInstance() {
   const invalidate = useInvalidateAll();
   return useMutation({
-    mutationFn: (input: CreateInstanceInput) => controlPlane.createInstance(input),
+    mutationFn: (input: CreateInstanceInput) =>
+      controlPlane.createInstance(input),
     onSuccess: (instance) => {
       invalidate();
       toast.success(`Instance ${instance.name} scheduled`, {
-        description: "Provisioning simulated locally. Control Plane API not connected yet.",
+        description:
+          "Provisioning simulated locally. Control Plane API not connected yet.",
       });
     },
-    onError: (error: Error) => toast.error("Creation failed", { description: error.message }),
+    onError: (error: Error) =>
+      toast.error("Creation failed", { description: error.message }),
   });
 }
 
 export function useReconcileNode() {
   const invalidate = useInvalidateAll();
   return useMutation({
-    mutationFn: ({ id }: { id: string; name: string }) => controlPlane.reconcileNode(id),
+    mutationFn: ({ id }: { id: string; name: string }) =>
+      controlPlane.reconcileNode(id),
     onSuccess: (_data, variables) => {
       invalidate();
       toast.success(`Reconcile requested for ${variables.name}`, {
-        description: "Simulated reconciliation, recovery events appended to the activity log.",
+        description:
+          "Simulated reconciliation, recovery events appended to the activity log.",
       });
     },
   });
@@ -126,11 +137,13 @@ export function useReconcileNode() {
 export function useUpdateSettings() {
   const invalidate = useInvalidateAll();
   return useMutation({
-    mutationFn: (settings: ControlPlaneSettings) => controlPlane.updateSettings(settings),
+    mutationFn: (settings: ControlPlaneSettings) =>
+      controlPlane.updateSettings(settings),
     onSuccess: () => {
       invalidate();
       toast.success("Settings saved locally", {
-        description: "Stored in memory only until the Control Plane API is connected.",
+        description:
+          "Stored in memory only until the Control Plane API is connected.",
       });
     },
   });

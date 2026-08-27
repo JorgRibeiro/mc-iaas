@@ -1,4 +1,12 @@
-import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import {
+  Area,
+  AreaChart,
+  CartesianGrid,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 
 import type { TimeseriesPoint } from "@/types";
 
@@ -13,17 +21,23 @@ export function UsageChart({
   title: string;
   subtitle?: string;
 }) {
-  const color = metric === "cpu" ? "var(--color-chart-1)" : "var(--color-chart-2)";
+  const color =
+    metric === "cpu" ? "var(--color-chart-1)" : "var(--color-chart-2)";
 
   return (
     <div className="panel p-4">
       <div className="mb-3 space-y-0.5">
         <h3 className="text-sm font-medium">{title}</h3>
-        {subtitle && <p className="text-xs text-muted-foreground">{subtitle}</p>}
+        {subtitle && (
+          <p className="text-xs text-muted-foreground">{subtitle}</p>
+        )}
       </div>
       <div className="h-44 w-full">
         <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={data} margin={{ top: 4, right: 4, bottom: 0, left: -18 }}>
+          <AreaChart
+            data={data}
+            margin={{ top: 4, right: 4, bottom: 0, left: -18 }}
+          >
             <defs>
               <linearGradient id={`grad-${metric}`} x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stopColor={color} stopOpacity={0.35} />
@@ -50,7 +64,10 @@ export function UsageChart({
                 fontSize: 12,
               }}
               labelStyle={{ color: "var(--color-muted-foreground)" }}
-              formatter={(value: number) => [`${value}%`, metric === "cpu" ? "CPU" : "Memory"]}
+              formatter={(value: number) => [
+                `${value}%`,
+                metric === "cpu" ? "CPU" : "Memory",
+              ]}
             />
             <Area
               type="monotone"
