@@ -1,1349 +1,575 @@
-**# MC-IaaS Compute Agent**
+# MC-IaaS Compute Agent
 
-O \`jorge-agent\` é o daemon/API local do Compute Node JORGE. Ele recebe operações de alto nível sobre instâncias Minecraft e as transforma em mudanças reais no hypervisor, storage, rede e filesystem do host.
+O `jorge-agent` é o daemon/API local do Compute Node do MC-IaaS. Ele converte operações sobre instâncias Minecraft em mudanças no libvirt/KVM, storage, rede e filesystem do host.
 
-Este documento descreve o componente implementado. Para a visão geral do projeto e a arquitetura Control Plane/Compute Node, consulte o [README principal]\(../README.md).
+Este documento descreve o componente implementado. Para a visão geral do projeto, consulte o [README principal](../README.md).
 
-**## Visão geral**
+## Sumário
 
-O agente é uma aplicação FastAPI executada no mesmo host que KVM/QEMU e libvirt. Os scripts atuais mantêm a API vinculada a \`http\://127.0.0.1:8000\`, de forma que ela não fica diretamente exposta à LAN ou à Internet. O acesso administrativo HTTP e WebSocket também possui autenticação própria por Bearer token.
+- [1. Visão geral](#1-visão-geral)
+- [2. Arquitetura](#2-arquitetura)
+- [3. Modelo de instância](#3-modelo-de-instância)
+- [4. Runtime e rede](#4-runtime-e-rede)
+- [5. Storage e persistência](#5-storage-e-persistência)
+- [6. Concorrência e invariantes](#6-concorrência-e-invariantes)
+- [7. Quotas e validação](#7-quotas-e-validação)
+- [8. Segurança](#8-segurança)
+- [9. Observabilidade](#9-observabilidade)
+- [10. Recovery e reconciliação](#10-recovery-e-reconciliação)
+- [11. API Reference](#11-api-reference)
+- [12. Instalação e operação](#12-instalação-e-operação)
+- [13. Testes](#13-testes)
+- [14. Limitações e roadmap](#14-limitações-e-roadmap)
 
-O único endpoint HTTP deliberadamente público é \`GET /health\`, usado como liveness probe pelo próprio host. Os demais endpoints administrativos exigem \`Authorization: Bearer <token>\`. A documentação automática do FastAPI (\`/docs\`, \`/redoc\` e \`/openapi.json\`) está desabilitada para não criar superfícies públicas adicionais.
+## 1. Visão geral
 
-O token do agente é um secret operacional do Compute Node, armazenado fora do Git em \`/srv/mc-iaas/secrets/agent-api-token\`, com permissão restrita. O futuro Control Plane deverá possuir esse secret — ou outro mecanismo de distribuição/rotação que o substitua — para autenticar chamadas ao Compute Node. O transporte remoto entre Control Plane e Compute Node ainda não foi definido; manter o bind em loopback evita expor a API antes dessa decisão.
+Na arquitetura pretendida, o Control Plane envia operações de alto nível ao Compute Agent de um nó. O agente aplica essas operações localmente e devolve estado, capacidade e observabilidade. O Control Plane ainda não está implementado neste repositório; hoje a API é consumida localmente ou por túnel SSH.
 
-Um START percorre aproximadamente este caminho:
+Responsabilidades do Compute Agent:
 
-\`\`\`text
+- criar, consultar e remover domínios libvirt;
+- orquestrar `CREATE`, `START`, `STOP`, `RESTART` e `DELETE`;
+- criar discos, volumes persistentes e seeds cloud-init;
+- alocar e liberar NIC, IP, DHCP e port-forward;
+- impor quotas e serializar operações concorrentes;
+- inicializar Minecraft e acessar RCON internamente;
+- expor health, métricas, consoles, snapshot e reconciliação;
+- verificar invariantes e desfazer operações incompletas.
 
-POST /instances/{name}/start
+## 2. Arquitetura
+
+```text
+Control Plane (futuro)
+        ↓ HTTP/WebSocket autenticado
+Compute Agent (FastAPI)
         ↓
-autenticação Bearer
+libvirt → KVM/QEMU
         ↓
-instance\_service
-        ↓
-lock exclusivo da instância
-        ↓
-lock global de runtime
-        ↓
-runtime\_service
-        ├── seleciona slot
-        ├── cria MAC e NIC
-        ├── reserva DHCP
-        ├── atualiza port-forward
-        └── aplica firewall
-        ↓
-domain\_service
-        └── inicia o domínio libvirt
+VM Minecraft
+```
 
-\`\`\`
+As principais camadas são:
 
-O agente mantém a separação entre recursos persistentes, criados no CREATE, e recursos de runtime, consumidos somente no START. O Passo 6 também consolidou regras de concorrência, quotas, lifecycle e segurança para impedir alocações duplicadas e operações administrativas não autenticadas.
+| Camada | Responsabilidade |
+|---|---|
+| API | Rotas HTTP/WebSocket, autenticação, schemas e códigos de resposta |
+| Orquestração | Lifecycle da instância, ordem das operações e rollback |
+| Virtualização | Definição, estado, boot, shutdown, reboot e console libvirt |
+| Runtime/rede | Slots, NIC, MAC, DHCP, leases, port-forward e firewall |
+| Storage/provisionamento | Imagem base, overlays, volume de dados e cloud-init |
+| Minecraft | Bootstrap, health TCP, comandos e console RCON |
+| Persistência local | Metadata e secrets por instância |
+| Observabilidade/recovery | Health, métricas, invariantes, snapshot e reconciliação |
 
-**## Responsabilidades**
+`main.py` é a borda da aplicação. `instance_service.py` coordena as mutações; os demais services encapsulam as operações de infraestrutura.
+
+## 3. Modelo de instância
 
-\- criar e remover domínios libvirt;
+Recursos persistentes e runtime possuem ciclos de vida separados:
 
-\- criar overlays de sistema e volumes persistentes;
+```text
+CREATE
+  ↓ cria recursos persistentes; runtime = null
+STOPPED ── START ──→ RUNNING
+   ↑                   │
+   └────── STOP ───────┘
+                       ↺ RESTART
+
+STOPPED ── DELETE ──→ removida
+```
+
+| Operação | Comportamento |
+|---|---|
+| `CREATE` | Cria storage, secret RCON, cloud-init, domínio e metadata. Retorna `stopped` sem slot, IP ou porta. |
+| `START` | Aloca runtime, anexa a NIC, configura DHCP/forward e inicia o domínio. |
+| `STOP` | Solicita shutdown gracioso, aguarda até 60 s e libera todo o runtime. É idempotente para domínio já parado. |
+| `RESTART` | Reinicia uma VM ativa e preserva o runtime existente. |
+| `DELETE` | Exige domínio parado. Remove domínio, cloud-init, secrets e disco de sistema; preserva o volume de dados por padrão. |
 
-\- produzir seeds NoCloud com cloud-init;
+Estados expostos pelo schema:
 
-\- gerar credenciais de VM e secrets de RCON;
+| Estado | Significado |
+|---|---|
+| `stopped` | Domínio desligado; no estado consistente, não possui runtime. |
+| `running` | Domínio ativo (`running` ou `blocked` no libvirt). |
+| `paused` | Domínio pausado ou suspenso; conta como instância ativa. |
+| `starting` | Declarado no enum público; o mapeamento libvirt atual não o emite. |
+| `stopping` | Libvirt reporta shutdown em andamento. |
+| `error` | Domínio em estado crashed. |
+| `unknown` | Estado libvirt sem mapeamento conhecido. |
 
-\- orquestrar CREATE, START, STOP, RESTART e DELETE;
+Conflitos de lifecycle retornam `409`: `CREATE` duplicado, `START` de domínio ativo, `RESTART` sem runtime ou em domínio parado e `DELETE` de domínio ativo. Operações sobre nome inexistente retornam `404`.
 
-\- serializar operações mutáveis por instância;
+No `DELETE`, o query parameter `delete_data` é `false` por padrão:
 
-\- proteger alocação/liberação de runtime com lock global;
+- `delete_data=false`: mantém o volume RAW e marca a metadata como deletada/preservada;
+- `delete_data=true`: remove também volume e metadata.
 
-\- impor quotas de CPU, memória e capacidade de runtime;
+Ainda não existe uma operação de restore para um volume preservado.
 
-\- alocar e liberar slots de runtime;
+## 4. Runtime e rede
 
-\- gerenciar NIC, MAC, reservas e leases DHCP;
+Runtime é a combinação de slot, IP interno e porta externa. Ele só existe enquanto uma instância está ativa.
 
-\- manter configuração de port-forward e aplicar firewall;
+| Slot | IP da VM | Porta externa | Destino Minecraft |
+|---:|---|---:|---:|
+| 1 | `10.50.0.10` | `25565` | `10.50.0.10:25565` |
+| 2 | `10.50.0.11` | `25566` | `10.50.0.11:25565` |
+| 3 | `10.50.0.12` | `25567` | `10.50.0.12:25565` |
+| 4 | `10.50.0.13` | `25568` | `10.50.0.13:25565` |
 
-\- inicializar Minecraft dentro da VM;
+| Serviço | Porta interna | Exposição |
+|---|---:|---|
+| Minecraft | `25565/TCP` | Publicada pela porta externa do slot |
+| RCON | `25575/TCP` | Somente entre o agente e a VM; nunca encaminhada publicamente |
 
-\- executar comandos RCON;
+O agente usa a rede libvirt `mc-net`, que deve existir e ser compatível com os quatro IPs estáticos. A alocação seleciona o primeiro slot cujo IP não esteja reservado nem alugado e cuja porta externa não esteja publicada.
 
-\- autenticar endpoints administrativos HTTP e WebSocket;
+No `START`, o agente:
 
-\- expor somente o liveness básico sem autenticação;
+1. deriva uma MAC determinística do nome (`52:54:00` + 3 bytes de SHA-256);
+2. anexa uma interface VirtIO ao domínio persistente;
+3. cria uma reserva DHCP live e persistente;
+4. grava o forward `porta_externa IP 25565`;
+5. reaplica o firewall;
+6. inicia a VM.
 
-\- expor health e métricas;
+No `STOP`, o processo inverso libera lease, reserva DHCP, port-forward e NIC. O helper `/srv/mc-iaas/scripts/release-dhcp-lease.sh` e o aplicador `/srv/mc-iaas/scripts/apply-firewall.sh` são dependências do host.
 
-\- oferecer consoles WebSocket;
+## 5. Storage e persistência
 
-\- reconciliar runtime órfão no startup;
+```text
+base QCOW2 somente leitura
+    └── overlay QCOW2 por VM (sistema)
 
-\- verificar invariantes do Compute Node.
+volume RAW por VM (dados Minecraft)
+    └── /srv/minecraft dentro da VM
+```
 
-**## Arquitetura interna**
+| Recurso | Implementação | Tamanho/lifecycle |
+|---|---|---|
+| Imagem base | Ubuntu 24.04 Minimal QCOW2, backing store imutável | Compartilhada; deve existir e não possuir bits de escrita |
+| Disco de sistema | Overlay `{name}.qcow2` no pool `mc-instances` | 10 GiB; removido no `DELETE` |
+| Volume de dados | `{name}-data.raw` no pool `mc-volumes` | 5 GiB, sparse; preservado por padrão no `DELETE` |
+| Seed cloud-init | `seed.img` RAW, NoCloud, somente leitura na VM | Criado no `CREATE`; removido no `DELETE` |
 
-\`\`\`mermaid
+O pool `mc-images` é ativado pelos scripts; o código lê a imagem base pelo caminho configurado. Os backing paths dos pools `mc-instances` e `mc-volumes` pertencem à configuração libvirt do host e não são fixados pelo Python.
 
-flowchart TB
+Dentro da VM, cloud-init:
 
-    CLIENT["Cliente local / futuro Control Plane"]
+- cria o usuário solicitado com senha hash e root desabilitado;
+- instala OpenJDK 25 e `curl`;
+- cria o usuário/grupo `minecraft` com UID/GID 2000;
+- formata `vdc` em ext4 quando necessário e monta em `/srv/minecraft`;
+- baixa e valida o JAR pelo SHA-1 fixado no catálogo;
+- configura EULA, RCON e `minecraft.service`.
 
-    MAIN["main.py\<br/>FastAPI + lifespan"]
+O catálogo atual contém somente Minecraft `26.2`.
 
-    INSTANCE["instance\_service\<br/>orquestração do lifecycle"]
+### Diretórios importantes
 
-    DOMAIN["domain\_service\<br/>domínios libvirt"]
+| Caminho | Conteúdo |
+|---|---|
+| `/srv/mc-iaas/storage/images/ubuntu-24.04-minimal-base.qcow2` | Imagem base |
+| `/srv/mc-iaas/cloud-init/{name}/` | `user-data`, `meta-data` e `seed.img` |
+| `/srv/mc-iaas/metadata/{name}.json` | Configuração persistente e marcadores de deleção |
+| `/srv/mc-iaas/secrets/{name}.json` | Senha RCON da instância |
+| `/srv/mc-iaas/secrets/agent-api-token` | Bearer token administrativo |
+| `/srv/mc-iaas/config/port-forwards.conf` | Estado desejado dos forwards Minecraft |
+| `/srv/mc-iaas/scripts/` | Helpers de firewall e DHCP |
+| `/srv/mc-iaas/logs/jorge-agent.log` | stdout/stderr do launcher |
+| `/srv/mc-iaas/run/jorge-agent.pid` | PID gravado pelo launcher |
+| `/srv/mc-iaas/run/locks/` | Locks de instância e runtime |
 
-    STORAGE["storage\_service\<br/>overlays e volumes"]
+Os arquivos de secret por instância são criados com modo `0600` em diretório `0700`. O `user-data` também é restrito a `0600`, pois contém material sensível usado no primeiro boot.
 
-    CLOUD["cloud\_init\_service\<br/>seed e bootstrap"]
+## 6. Concorrência e invariantes
 
-    RUNTIME["runtime\_service\<br/>slot + NIC + DHCP + firewall"]
+### Locks
 
-    META["metadata\_service"]
+Os locks usam `fcntl.flock()` em arquivos, portanto serializam processos distintos, não apenas threads do Uvicorn.
 
-    SECRET["secret\_service"]
+| Lock | Escopo | Operações |
+|---|---|---|
+| Instância | `/srv/mc-iaas/run/locks/instances/{name}.lock` | `CREATE`, `START`, `STOP`, `RESTART`, `DELETE` e reconciliation da instância |
+| Runtime global | `/srv/mc-iaas/run/locks/runtime.lock` | Alocação/liberação de slot, NIC, DHCP, forward e firewall |
 
-    LIBVIRT\_SERVICE["libvirt\_service\<br/>consulta e estados"]
+Quando ambos são necessários, a ordem obrigatória é:
 
-    HEALTH["health\_service"]
+```text
+instance lock → runtime lock
+```
 
-    METRICS["metrics\_service"]
+O lock de instância permanece durante toda a mutação. O lock global é mantido apenas durante a mudança do runtime, evitando bloquear outras VMs durante boot, shutdown ou reboot.
 
-    RCON["rcon\_service"]
+O `START` trata a preparação como uma unidade: se NIC, DHCP, port-forward ou firewall falhar, tenta desfazer em ordem inversa o que já foi aplicado. Se o boot do domínio falhar depois da preparação, libera o runtime. A liberação explícita agrega falhas em `RuntimeCleanupError`; se o próprio rollback falhar, a operação também falha e invariantes/recovery devem detectar o resíduo. Uma resposta de sucesso nunca é emitida para uma preparação incompleta.
 
-    CONSOLES["console services e bridges"]
+### Invariantes de projeto
 
-    RECOVERY["recovery\_service"]
+| Invariante | Consequência |
+|---|---|
+| Um slot/IP/porta não pertence a dois runtimes | Alocação global serializada e disponibilidade derivada do estado real |
+| No máximo quatro workloads ativos via API | O quinto `START` falha por ausência de slot |
+| `CREATE` não aloca runtime | Instância recém-criada retorna `runtime: null` |
+| VM ativa possui runtime | Ausência é crítica; não se reconstrói automaticamente |
+| VM parada não possui runtime | Resíduo pode ser liberado pela reconciliação |
+| `STOP` libera runtime | NIC, DHCP, lease e forward são removidos após o shutdown |
+| `RESTART` mantém runtime | O domínio é reiniciado sem desalocação |
+| `DELETE` exige VM parada | A remoção não executa um `STOP` implícito |
+| RCON não é público | Forward com destino `25575` é uma violação crítica |
+| Imagem base é imutável | Ausência ou permissão de escrita é uma violação crítica |
 
-    INVARIANTS["invariant\_service"]
+As verificações atuais também cobrem atividade/existência de `mc-net`, pools `mc-instances` e `mc-volumes`, scripts obrigatórios, metadata gerenciada e relação domínio/runtime. Metadata de volume preservado, marcada como deletada, é ignorada na verificação de domínio.
 
-    HV["libvirt / KVM / QEMU"]
+## 7. Quotas e validação
 
-    HOST["filesystem + scripts do host"]
+| Recurso | Mínimo | Padrão | Máximo |
+|---|---:|---:|---:|
+| Memória | 512 MiB | 2048 MiB | 2048 MiB |
+| vCPU | 1 | 1 | 1 |
+| Workloads ativos | — | — | 4 slots |
+| Disco de sistema | — | 10 GiB | 10 GiB |
+| Volume de dados | — | 5 GiB | 5 GiB |
 
-    CLIENT --> MAIN
+O schema de `CREATE` também exige:
 
-    MAIN --> INSTANCE
+- `name`: 3–50 caracteres, começa com alfanumérico e usa apenas letras, números, `_` ou `-`;
+- `vm_username`: 1–32 caracteres no formato Linux aceito; `root`, `minecraft` e `libvirt-qemu` são reservados;
+- `vm_password`: opcional, mínimo de 12 caracteres quando fornecido;
+- `minecraft_version`: somente `26.2` é suportada pelo catálogo atual;
+- `accept_eula=true`: aceitação explícita obrigatória.
 
-    MAIN --> LIBVIRT\_SERVICE
+Se `vm_password` for omitida, o agente gera uma senha e a devolve apenas no campo `generated_password` da resposta de criação. Violações de schema geram `422`; EULA recusada ou versão sem suporte geram `400`.
 
-    MAIN --> HEALTH
+## 8. Segurança
 
-    MAIN --> METRICS
+A API administrativa usa um Bearer token compartilhado. Não existem login de usuário, sessão, JWT ou OAuth no Compute Agent.
 
-    MAIN --> RCON
-
-    MAIN --> CONSOLES
-
-    MAIN --> RECOVERY
-
-    MAIN --> INVARIANTS
-
-    INSTANCE --> DOMAIN
-
-    INSTANCE --> STORAGE
-
-    INSTANCE --> CLOUD
-
-    INSTANCE --> RUNTIME
-
-    INSTANCE --> META
-
-    INSTANCE --> SECRET
-
-    DOMAIN --> HV
-
-    STORAGE --> HV
-
-    RUNTIME --> HV
-
-    RUNTIME --> HOST
-
-    CLOUD --> HOST
-
-    META --> HOST
-
-    SECRET --> HOST
-
-\`\`\`
-
-\`main.py\` contém a borda HTTP/WebSocket e o lifecycle de startup. \`instance\_service.py\` é a camada de orquestração das mutações; os demais services encapsulam responsabilidades específicas.
-
-**## API atual**
-
-| Método | Endpoint | Autenticação | Responsabilidade |
-|---|---|---|---|
-| \`GET\` | \`/health\` | pública | health básico do processo |
-| \`GET\` | \`/hypervisor/health\` | Bearer | versão, host e contagem de domínios libvirt |
-| \`GET\` | \`/instances\` | Bearer | lista instâncias definidas |
-| \`POST\` | \`/instances\` | Bearer | cria storage, cloud-init, domínio, metadata e secrets |
-| \`GET\` | \`/instances/{name}\` | Bearer | detalhe de uma instância |
-| \`POST\` | \`/instances/{name}/start\` | Bearer | aloca runtime e inicia a VM |
-| \`POST\` | \`/instances/{name}/stop\` | Bearer | para a VM e libera runtime |
-| \`POST\` | \`/instances/{name}/restart\` | Bearer | reinicia mantendo runtime |
-| \`DELETE\` | \`/instances/{name}\` | Bearer | remove a instância parada; aceita \`delete_data\` |
-| \`GET\` | \`/instances/{name}/health\` | Bearer | estado da VM e do Minecraft |
-| \`GET\` | \`/instances/{name}/metrics\` | Bearer | CPU, memória, storage e rede |
-| \`POST\` | \`/instances/{name}/minecraft/command\` | Bearer | executa comando RCON |
-| \`WS\` | \`/instances/{name}/console\` | Bearer no handshake | console serial da VM |
-| \`WS\` | \`/instances/{name}/minecraft/console\` | Bearer no handshake | console de comandos Minecraft via RCON |
-
-**### Modelo de segurança da API**
-
-A segurança implementada no Passo 6 usa autenticação máquina-a-máquina simples. Não existe login de usuário, sessão, OAuth ou JWT no Compute Agent. O objetivo do agente é receber comandos de um Control Plane confiável, portanto um Bearer token compartilhado é suficiente para a arquitetura atual e mantém o componente pequeno.
-
-O header esperado é:
-
-\`\`\`http
-
+```http
 Authorization: Bearer <agent-api-token>
+```
 
-\`\`\`
+- O token é lido de `/srv/mc-iaas/secrets/agent-api-token` a cada validação.
+- Token ausente, header malformado ou token inválido retorna `401`.
+- Secret ausente ou vazio torna a autenticação indisponível e retorna `503`.
+- A comparação usa `secrets.compare_digest()`.
+- HTTP administrativo e ambos os WebSockets exigem o mesmo header.
+- `/health` é público e retorna somente `status` e `service`.
+- `/docs`, `/redoc` e `/openapi.json` estão desabilitados.
+- O launcher faz bind somente em `127.0.0.1:8000`.
+- Acesso remoto de desenvolvimento deve usar SSH local forwarding; o canal permanente com o futuro Control Plane ainda não foi definido.
+- Tokens nunca devem ser enviados em query string.
+- RCON `25575` nunca deve ser publicado; o agente acessa a VM pela rede interna.
 
-A validação está centralizada em \`services/auth_service.py\`. HTTP e WebSocket reutilizam a mesma leitura e comparação do token. A comparação usa \`secrets.compare_digest()\`, evitando comparar credenciais sensíveis com igualdade comum.
+Não registrar nem copiar para documentação: API token, header `Authorization`, senha da VM, senha gerada, senha RCON, conteúdo de secrets, payload completo de `CREATE` ou comandos RCON completos.
 
-Comportamento HTTP:
+O log também é dado operacional sensível e deve possuir permissões restritas no host. O código Python usa um `StreamHandler` para stdout; `start.sh` redireciona stdout/stderr para `/srv/mc-iaas/logs/jorge-agent.log`. Não há `FileHandler` nem rotação de logs implementados no agente.
 
-\`\`\`text
+Exemplo de túnel SSH:
 
-GET /health
-    sem token               → 200
+```bash
+ssh -L 8000:127.0.0.1:8000 usuario@compute-node
+```
 
-endpoint administrativo
-    sem token               → 401
-    token inválido          → 401
-    token válido            → executa endpoint
-    secret do agente ausente/vazio
-                            → 503
+## 9. Observabilidade
 
-\`\`\`
+### Agent status
 
-O endpoint \`/health\` é deliberadamente público porque os scripts locais precisam descobrir se o processo está vivo sem depender do secret. Ele não fornece inventário, configuração do hypervisor ou dados das VMs.
+`GET /agent/status` informa `status` (`running`), `service`, `version`, `started_at` em UTC e `uptime_seconds`, calculado com relógio monotônico.
 
-Os WebSockets são autenticados durante o handshake, antes de entrar nos bridges de console. Uma conexão sem credencial válida é rejeitada antes de \`websocket.accept()\`; nos testes manuais com Postman o handshake sem token foi rejeitado com HTTP \`403 Forbidden\`, enquanto o mesmo endpoint conectou com o Bearer token correto. Como a dependência de autenticação é executada antes da função do endpoint, uma conexão não autenticada não chega a abrir o console libvirt nem o console Minecraft/RCON.
+### Node health e readiness
 
-**### Armazenamento do token**
+`GET /node/health` agrega `libvirt`, `network`, `storage`, `invariants` e capacidade.
 
-O secret do agente fica em:
-
-\`\`\`text
-
-/srv/mc-iaas/secrets/agent-api-token
-
-\`\`\`
-
-Ele não deve ser versionado, inserido na metadata de instâncias, impresso em logs ou copiado para documentação. No host JORGE ele é mantido com acesso restrito ao usuário operacional.
-
-O caminho do secret é centralizado em \`PATHS.agent_api_token_file\`. \`auth_service.py\` lê o valor no momento da validação, recusa arquivo ausente ou vazio e nunca devolve o token na resposta.
-
-**### Superfície de exposição**
-
-O Uvicorn continua iniciado com:
-
-\`\`\`text
-
---host 127.0.0.1
---port 8000
-
-\`\`\`
-
-Autenticação e bind em loopback resolvem problemas diferentes:
-
-\- o **bind em loopback** impede conexões diretas pela rede;
-
-\- o **Bearer token** impede que um cliente que consiga alcançar a API execute operações sem credencial.
-
-Durante desenvolvimento, o notebook pode acessar o agente por túnel SSH, por exemplo encaminhando \`localhost:8000\` para \`127.0.0.1:8000\` do JORGE. Isso permite testar a API sem abrir a porta 8000 publicamente.
-
-A integração remota permanente com o futuro Control Plane ainda deve decidir o canal de transporte. A existência do Bearer token não deve ser usada como justificativa para publicar a porta 8000 indiscriminadamente na Internet.
-
-**### Consumidores internos autenticados**
-
-O \`stop-final.sh\` consulta \`/instances\` e chama \`/instances/{name}/stop\`. Após a introdução da autenticação, ele passou a carregar o token de \`/srv/mc-iaas/secrets/agent-api-token\` e enviar o Bearer header nas chamadas administrativas. O probe \`/health\` continua sem credencial.
-
-A suíte E2E também foi preparada para construir um único \`httpx.Client\` autenticado. O token pode ser fornecido por variável de ambiente ou pelo arquivo local do Compute Node, evitando repetir headers em cada requisição e evitando credenciais hardcoded no repositório.
-
-**### Documentação automática**
-
-\`/docs\`, \`/redoc\` e \`/openapi.json\` estão desabilitados na aplicação atual. Isso mantém a regra operacional simples: \`/health\` é a única rota HTTP pública; as rotas administrativas conhecidas são registradas em um \`APIRouter\` protegido por \`Depends(require_api_token)\`.
-
-**### Lifecycle e conflitos**
-
-As operações mutáveis também seguem uma política explícita de estado:
-
-| Situação | Resultado |
+| Campo | Semântica |
 |---|---|
-| CREATE de nome inexistente | cria instância parada |
-| CREATE de nome existente | \`409 Conflict\` |
-| START de instância parada | inicia e aloca runtime |
-| START de instância já ativa | \`409 Conflict\` |
-| STOP de instância ativa | para e libera runtime |
-| STOP de instância já parada | sucesso idempotente |
-| RESTART de instância ativa | reinicia preservando runtime |
-| RESTART de instância parada | \`409 Conflict\` |
-| DELETE de instância ativa | \`409 Conflict\` |
-| DELETE de instância parada | remove conforme \`delete_data\` |
-| operação sobre instância inexistente | \`404 Not Found\` |
+| `status` | `healthy`, `degraded` ou `unhealthy` |
+| `ready` | Indica se o nó pode anunciar capacidade ao scheduler |
+| `max_active_instances` | Capacidade estrutural: 4 |
+| `active_instances` | Contagem real de domínios `running` ou `paused` |
+| `occupied_runtime_slots` | Slots fisicamente ocupados, derivados de IPs/leases/forwards |
+| `available_slots` | Capacidade anunciável; vira `0` quando `ready=false` |
 
-DELETE não funciona como um STOP implícito. A transição destrutiva exige explicitamente \`RUNNING → STOP → STOPPED → DELETE\`, o que reduz ambiguidade operacional e evita que uma requisição de remoção encerre uma VM ativa silenciosamente.
+`active_instances` e `occupied_runtime_slots` medem coisas diferentes. Não se deve inferir uma pela outra. Um nó inconsistente pode possuir slots fisicamente livres e ainda anunciar `available_slots: 0`.
 
-**## Fluxos principais**
+O modelo de invariantes aceita severidades `warning` e `critical`:
 
-\`\`\`mermaid
+- `critical` produz `unhealthy` e `ready=false`;
+- somente `warning` produziria `degraded` sem necessariamente retirar readiness.
 
-stateDiagram-v2
+As verificações atualmente cadastradas usam a severidade padrão `critical`; portanto, o contrato suporta warnings/degraded, mas ainda não há uma verificação que emita warning.
 
-    [\*] --> Stopped: CREATE cria recursos persistentes
+### Métricas do host
 
-    Stopped --> Running: START aloca runtime e inicia VM
+`GET /node/metrics` usa standard library e procfs, sem `psutil`:
 
-    Running --> Running: RESTART preserva runtime
-
-    Running --> Stopped: STOP encerra VM e libera runtime
-
-    Stopped --> [\*]: DELETE remove recursos
-
-\`\`\`
-
-**### CREATE**
-
-\`\`\`mermaid
-
-sequenceDiagram
-
-    participant API as FastAPI
-
-    participant I as instance\_service
-
-    participant S as storage\_service
-
-    participant SEC as secret\_service
-
-    participant C as cloud\_init\_service
-
-    participant D as domain\_service
-
-    participant M as metadata\_service
-
-    API->>I: create\_instance(payload)
-
-    I->>S: cria overlay e volume persistente
-
-    I->>SEC: gera secret RCON
-
-    I->>C: cria user-data, meta-data e seed
-
-    I->>D: define domínio libvirt parado
-
-    I->>M: salva metadata
-
-    I-->>API: STOPPED, runtime = null
-
-\`\`\`
-
-O payload precisa aceitar a EULA. O schema permite memória entre 512 e 2048 MiB, fixa \`vcpus\` em 1 e usa Minecraft \`26.2\` como versão padrão e atualmente catalogada.
-
-Se a senha da VM não for informada, \`credential\_service.py\` gera uma senha e o CREATE a devolve uma vez em \`generated\_password\`. O hash usado pelo cloud-init é produzido com \`sha512\_crypt\`. O valor não é gravado na metadata.
-
-O rollback do CREATE ocorre na ordem inversa para domínio, cloud-init, storage e secrets quando uma etapa falha. CREATE não anexa NIC, não reserva IP e não publica porta.
-
-**### START**
-
-O runtime é preparado antes do boot:
-
-1\. confirma que o domínio existe e está parado;
-
-2\. consulta reservas DHCP, leases IPv4 e portas publicadas;
-
-3\. escolhe o primeiro slot disponível;
-
-4\. deriva uma MAC determinística do nome da instância;
-
-5\. anexa uma interface VirtIO persistente ao domínio;
-
-6\. adiciona uma reserva DHCP live e persistente;
-
-7\. grava o port-forward do Minecraft;
-
-8\. executa o script de firewall;
-
-9\. inicia o domínio libvirt.
-
-Se a preparação falhar, \`runtime\_service.py\` executa ações de rollback em ordem inversa. Se o boot do domínio falhar depois da preparação, \`instance\_service.py\` chama a liberação de runtime.
-
-**### STOP**
-
-\`domain\_service.py\` solicita shutdown gracioso e aguarda até 60 segundos. Depois que a VM está inativa, o runtime é liberado:
-
-1\. leases DHCP IPv4 são liberados pelo helper do host;
-
-2\. a regra de port-forward é removida e o firewall reaplicado;
-
-3\. a reserva DHCP é removida;
-
-4\. a NIC persistente é destacada.
-
-Falhas de cleanup são agregadas em \`RuntimeCleanupError\`, permitindo relatar mais de um recurso que não pôde ser removido.
-
-**### RESTART**
-
-RESTART exige uma VM ativa com runtime existente. O agente envia \`reboot(0)\` ao domínio e retorna a mesma alocação de slot, IP e porta. DHCP, NIC e port-forward não são recriados.
-
-**### DELETE**
-
-DELETE exige que a VM já esteja parada. Uma tentativa de remover uma instância ativa retorna conflito em vez de executar STOP implicitamente. Depois dessa pré-condição, o agente libera qualquer runtime residual e remove domínio, cloud-init, secrets e disco de sistema.
-
-\| Parâmetro | Resultado |
-
-\|---|---|
-
-\| \`delete\_data=false\` | preserva o volume RAW do mundo e marca a metadata como deletada |
-
-\| \`delete\_data=true\` | remove também volume de dados e metadata |
-
-O default é \`delete\_data=false\`. Ainda não existe um endpoint de restore para uma metadata marcada como deletada.
-
-**## Contrato da máquina virtual**
-
-O domínio criado atualmente possui:
-
-\- tipo \`kvm\` e arquitetura \`x86\_64\`;
-
-\- 1 vCPU;
-
-\- memória configurável entre 512 MiB e 2 GiB;
-
-\- firmware/boot convencional por disco;
-
-\- ACPI e APIC;
-
-\- console serial PTY;
-
-\- nenhuma NIC no CREATE;
-
-\- Ubuntu 24.04 Minimal como imagem base;
-
-\- OpenJDK 25 e Minecraft instalados pelo cloud-init.
-
-Mapeamento dos discos:
-
-\| Dispositivo | Formato | Função |
-
-\|---|---|---|
-
-\| \`vda\` | QCOW2 | sistema operacional, baseado na imagem base |
-
-\| \`vdb\` | RAW, somente leitura | seed NoCloud do cloud-init |
-
-\| \`vdc\` | RAW | dados persistentes montados em \`/srv/minecraft\` |
-
-A interface de rede VirtIO é anexada somente no START e removida no STOP.
-
-**## Storage**
-
-Os nomes de pools configurados são:
-
-\| Pool | Uso atual |
-
-\|---|---|
-
-\| \`mc-images\` | pool de imagens ativado pelos scripts de infraestrutura |
-
-\| \`mc-instances\` | overlays QCOW2 dos discos de sistema |
-
-\| \`mc-volumes\` | volumes RAW persistentes do Minecraft |
-
-O agente lê a imagem base diretamente em:
-
-\`\`\`text
-
-/srv/mc-iaas/storage/images/ubuntu-24.04-minimal-base.qcow2
-
-\`\`\`
-
-O disco de sistema tem 10 GiB e usa a imagem base como backing store. O volume de dados tem 5 GiB e allocation inicial igual a zero. A invariante exige que a imagem base exista e não tenha bits de escrita.
-
-Os diretórios de backing dos pools \`mc-instances\` e \`mc-volumes\` são definidos na configuração libvirt do host; o código Python trabalha com os nomes dos pools, não fixa esses backing paths.
-
-**## Runtime slots**
-
-\`RuntimeSlot\` possui três campos:
-
-\`\`\`text
-
-slot
-ip
-external_port
-
-\`\`\`
-
-| Slot | IP | Porta externa |
-|---:|---|---:|
-| 1 | \`10.50.0.10\` | \`25565\` |
-| 2 | \`10.50.0.11\` | \`25566\` |
-| 3 | \`10.50.0.12\` | \`25567\` |
-| 4 | \`10.50.0.13\` | \`25568\` |
-
-Um slot é consumido no START e liberado no STOP. A seleção ignora slots com IP reservado, lease IPv4 ativo ou porta externa já presente no arquivo de port-forward. A capacidade de runtime é derivada dos quatro \`RUNTIME_SLOTS\`; portanto, no estado atual, o quinto START simultaneamente ativo não possui slot e retorna conflito.
-
-**### Concorrência e locks**
-
-O Passo 6 introduziu serialização explícita das operações mutáveis através de \`services/lock_service.py\`. Os locks usam \`fcntl.flock()\` sobre arquivos em \`/srv/mc-iaas/run/locks\`, portanto funcionam entre processos e não apenas entre threads Python.
-
-Existem dois níveis:
-
-\- **lock por instância:** impede duas operações mutáveis concorrentes sobre a mesma VM;
-
-\- **lock global de runtime:** protege recursos compartilhados entre VMs — slots, reservas DHCP, port-forwards e alterações de firewall.
-
-A ordem oficial de aquisição é:
-
-\`\`\`text
-
-instance lock
-    ↓
-runtime lock
-
-\`\`\`
-
-O código não deve adquirir esses locks na ordem inversa. Essa regra reduz risco de deadlock quando uma operação precisa dos dois recursos.
-
-CREATE, START, STOP, RESTART e DELETE são serializados por instância. START e STOP entram no lock global somente durante a fase de alocação/liberação do runtime; o lock global não permanece preso durante um boot ou shutdown potencialmente lento.
-
-No START, por exemplo:
-
-\`\`\`text
-
-lock(instance)
-    ↓
-verifica estado
-    ↓
-lock(runtime)
-    ↓
-aloca slot + NIC + DHCP + port-forward
-    ↓
-libera lock(runtime)
-    ↓
-inicia domínio
-    ↓
-se boot falhar:
-    lock(runtime)
-    ↓
-rollback do runtime
-    ↓
-libera lock(instance)
-
-\`\`\`
-
-Isso preserva atomicidade da alocação sem bloquear todas as outras VMs durante o boot.
-
-Foram realizados testes manuais de concorrência com múltiplos START/STOP:
-
-\- START simultâneo de VMs diferentes recebeu slots distintos;
-
-\- STOP simultâneo liberou corretamente os runtimes;
-
-\- dois STARTs simultâneos da mesma VM resultaram em uma execução bem-sucedida e um conflito, sem duplicar lease ou port-forward;
-
-\- START e STOP concorrentes da mesma VM foram serializados e terminaram em estado coerente.
-
-Os testes automáticos específicos de concorrência foram deliberadamente adiados; a proteção implementada e os testes manuais não devem ser confundidos com uma suíte formal de stress/concurrency.
-
-**## Networking**
-
-**### Rede e endereçamento**
-
-O agente usa a rede libvirt \`mc-net\`, no espaço \`10.50.0.0/24\`. O helper de liberação DHCP opera sobre a bridge \`virbr50\`.
-
-A MAC de cada instância é determinística:
-
-\`\`\`text
-
-52:54:00 + primeiros 3 bytes de SHA-256(nome)
-
-\`\`\`
-
-Isso permite reencontrar reservas e interfaces pelo nome ou pela MAC.
-
-**### DHCP**
-
-No START, o agente adiciona um elemento DHCP host à configuração live e persistente da rede. No STOP, chama \`/srv/mc-iaas/scripts/release-dhcp-lease.sh\` para cada lease IPv4 e remove a reserva.
-
-O helper versionado em \`infra/scripts/release-dhcp-lease.sh\` valida IP e MAC antes de executar \`/usr/bin/dhcp\_release\` na \`virbr50\`. Ele precisa ser instalado no caminho esperado pelo agente.
-
-**### Port-forward e firewall**
-
-As regras desejadas ficam em:
-
-\`\`\`text
-
-/srv/mc-iaas/config/port-forwards.conf
-
-\`\`\`
-
-Cada linha contém porta externa, IP interno e porta interna. Depois de adicionar ou remover uma entrada, o agente executa:
-
-\`\`\`text
-
-/srv/mc-iaas/scripts/apply-firewall.sh
-
-\`\`\`
-
-Esse script é uma dependência operacional do host, mas não está versionado neste checkout. O START também o executa antes de subir a API.
-
-Minecraft usa \`25565\` dentro da VM. RCON usa \`25575\` e não é publicado pelo port-forward. \`invariant\_service.py\` sinaliza qualquer regra cujo destino interno seja a porta RCON.
-
-**## Metadata e secrets**
-
-**### Metadata**
-
-Arquivos em \`/srv/mc-iaas/metadata/{name}.json\` guardam:
-
-\- nome da instância;
-
-\- usuário da VM;
-
-\- versão do Minecraft;
-
-\- memória e vCPUs;
-
-\- caminho do volume de dados;
-
-\- marcadores de deleção e preservação quando aplicável.
-
-O formato JSON é usado por listagem, detalhes, recovery e invariantes. Metadata marcada como \`deleted\` é ignorada por recovery e invariantes de domínio.
-
-**### Secrets**
-
-Arquivos em \`/srv/mc-iaas/secrets/{name}.json\` guardam somente o secret RCON da instância. O diretório recebe modo \`0700\`; o arquivo é criado atomicamente com \`O\_EXCL\` e modo \`0600\`.
-
-O secret é gerado com \`secrets.token\_urlsafe(24)\`. Valores reais de senha nunca devem ser copiados para documentação, logs ou testes.
-
-**## Cloud-init**
-
-Artefatos por instância são criados em:
-
-\`\`\`text
-
-/srv/mc-iaas/cloud-init/{name}/
-
-├── user-data
-
-├── meta-data
-
-└── seed.img
-
-\`\`\`
-
-\`cloud-localds\` transforma \`user-data\` e \`meta-data\` em um seed NoCloud. O seed é anexado como \`vdb\` via VirtIO e somente leitura.
-
-Em alto nível, o cloud-init:
-
-\- cria o usuário solicitado e configura sua senha hash;
-
-\- instala OpenJDK 25 e \`curl\`;
-
-\- cria usuário e grupo \`minecraft\` com UID/GID 2000;
-
-\- formata \`vdc\` como ext4 quando necessário;
-
-\- registra o volume em \`/etc/fstab\` e o monta em \`/srv/minecraft\`;
-
-\- baixa e valida o servidor por SHA-1;
-
-\- grava a EULA aceita;
-
-\- configura RCON;
-
-\- instala e inicia \`minecraft.service\`.
-
-O catálogo de artefatos suporta atualmente a versão Minecraft \`26.2\` com URL e hash fixados no serviço.
-
-**## Minecraft e RCON**
-
-\| Serviço | Porta interna | Exposição |
-
-\|---|---:|---|
-
-\| Minecraft | \`25565\` | publicado pelo slot de runtime |
-
-\| RCON | \`25575\` | somente comunicação interna do agente |
-
-\`rcon\_service.py\` implementa autenticação e pacotes do protocolo RCON diretamente sobre TCP. O agente carrega o secret local e se conecta ao IP privado da VM. Os valores \`SERVERDATA\_\*\` pertencem ao protocolo, não à configuração operacional.
-
-Existe uma janela normal de readiness em que a porta Minecraft já aceita conexões, mas RCON ainda responde \`Connection refused\`. Por isso, a suíte E2E possui retry separado para o primeiro comando RCON.
-
-**### Console da VM versus console Minecraft**
-
-\- **\*\*VM serial console:\*\*** \`console\_service.py\` abre um stream libvirt para o console serial do domínio; \`console\_bridge.py\` transporta bytes entre esse stream e um WebSocket.
-
-\- **\*\*Minecraft console:\*\*** \`minecraft\_console\_bridge.py\` recebe comandos de texto por WebSocket e os executa via RCON. Não é um terminal do sistema operacional.
-
-**## Health e métricas**
-
-**### Health**
-
-\`health\_service.py\` combina estado do domínio, runtime e uma conexão TCP à porta Minecraft:
-
-\| Estado Minecraft | Significado |
-
-\|---|---|
-
-\| \`stopped\` | domínio não está ativo |
-
-\| \`online\` | domínio ativo, runtime presente e porta \`25565\` acessível |
-
-\| \`unavailable\` | domínio ativo sem runtime ou porta não acessível |
-
-O probe TCP usa timeout de 1 segundo. Ele verifica disponibilidade da porta Minecraft, não readiness do RCON.
-
-**### Métricas**
-
-O endpoint de métricas coleta:
-
-\- CPU: tempo acumulado e uso percentual amostrado por 0,5 segundo;
-
-\- memória: configurada, corrente e RSS quando disponível;
-
-\- storage: capacidade e allocation de sistema e dados;
-
-\- rede: bytes recebidos e transmitidos pelas interfaces do domínio.
-
-Valores como CPU, RSS, allocation e contadores de rede são dinâmicos.
-
-**## Recovery**
-
-\`recovery\_service.py\` percorre metadata não deletada e domínios existentes durante o startup. Para cada instância:
-
-\- VM ativa: estado mantido;
-
-\- VM parada sem runtime: estado mantido;
-
-\- VM parada com runtime: \`release\_instance\_runtime()\` é executado;
-
-\- metadata sem nome ou sem domínio: recovery não toma decisão destrutiva;
-
-\- falhas individuais: registradas em \`RecoveryReport.errors\`.
-
-\`main.py\` interrompe o startup se o relatório contiver erros. Depois do recovery, executa as invariantes e também interrompe o startup se o Compute Node não estiver saudável.
-
-**## Invariantes**
-
-\`invariant\_service.py\` verifica atualmente:
-
-\- existência e atividade da rede \`mc-net\`;
-
-\- existência e atividade dos pools \`mc-instances\` e \`mc-volumes\`;
-
-\- existência da imagem base;
-
-\- ausência de permissão de escrita na imagem base;
-
-\- existência dos scripts de firewall e liberação DHCP;
-
-\- ausência de encaminhamento público para RCON;
-
-\- validade mínima da metadata não deletada;
-
-\- existência de domínio para cada metadata gerenciada;
-
-\- VM ativa deve possuir runtime;
-
-\- VM parada não deve possuir runtime;
-
-\- disponibilidade da conexão libvirt.
-
-O serviço não verifica atualmente, por exemplo, permissões de secrets, conteúdo integral do cloud-init ou atividade do pool \`mc-images\`. Esses itens não devem ser assumidos como invariantes implementadas.
-
-**## Configuração centralizada**
-
-\`src/jorge_agent/config.py\` concentra configuração estática compartilhada:
-
-| Objeto | Conteúdo |
+| Grupo | Campos |
 |---|---|
-| \`LIBVIRT\` | URI \`qemu:///system\`, rede \`mc-net\` e nomes dos pools |
-| \`STORAGE\` | raiz, imagem base e tamanhos dos discos |
-| \`NETWORK\` | portas, arquivo de forwards e scripts do host |
-| \`PATHS\` | diretórios de cloud-init, metadata, secrets, runtime, locks e caminho do token da API |
-| \`QUOTAS\` | limites e defaults de memória/vCPU |
-| \`RUNTIME_SLOTS\` | quatro combinações slot/IP/porta |
-| \`MAX_ACTIVE_INSTANCES\` | capacidade derivada de \`len(RUNTIME_SLOTS)\` |
+| CPU | `usage_percent` (amostra de 0,5 s), `load_1m`, `load_5m`, `load_15m` |
+| Memória | `total_bytes`, `used_bytes`, `available_bytes`, `usage_percent` |
+| `root_disk` | `path`, `total_bytes`, `used_bytes`, `free_bytes`, `usage_percent` para `/` |
+| `mc_iaas_disk` | Mesmos campos para `/srv/mc-iaas` |
 
-A política atual de recursos é:
+### Health e métricas da instância
 
-\`\`\`text
+`GET /instances/{name}/health` separa estado do domínio e disponibilidade do Minecraft:
 
-memória:
-    mínimo  = 512 MiB
-    default = 2048 MiB
-    máximo  = 2048 MiB
+| `minecraft_state` | Condição |
+|---|---|
+| `stopped` | Domínio inativo; `runtime` é `null` |
+| `unavailable` | Domínio ativo sem runtime ou TCP `25565` ainda inacessível |
+| `online` | Domínio ativo, runtime presente e TCP `25565` acessível |
 
-vCPU:
-    mínimo  = 1
-    default = 1
-    máximo  = 1
+É normal observar `instance_state: running` e `minecraft_state: unavailable` durante o boot. O probe usa conexão TCP com timeout de 1 s e não comprova readiness do RCON.
 
-instâncias ativas:
-    máximo estrutural = 4 slots
+`GET /instances/{name}/metrics` expõe somente:
 
-\`\`\`
+| Grupo | Campos |
+|---|---|
+| CPU | `usage_percent`, `cpu_time_seconds`, `vcpus` |
+| Memória | `configured_mb`, `current_mb`, `rss_mb` |
+| Storage | `system` e `data`, cada um com `capacity_bytes` e `allocation_bytes` |
+| Rede | `rx_bytes`, `tx_bytes` |
 
-Pydantic rejeita CREATE fora dos limites de memória/vCPU com erro de validação. O quinto START não é bloqueado por um contador paralelo; ele falha naturalmente porque nenhum \`RuntimeSlot\` está disponível. Essa escolha evita duas fontes de verdade para capacidade.
+Alguns campos são anuláveis: CPU instantânea para VM não running, RSS sem estatística disponível, volumes ausentes e rede de domínio inativo/sem interface.
 
-Os services importam esses objetos em vez de repetir caminhos e números. Estado dinâmico, leases, senhas, tokens reais e métricas não pertencem a \`config.py\`; apenas seus caminhos e limites estáticos são configurados ali.
+### Node snapshot
 
-**## Estrutura dos arquivos**
+`GET /node/snapshot` é a fotografia agregada do Compute Node e a principal interface de observabilidade projetada para consumo pelo futuro Control Plane.
 
-\`\`\`text
+```text
+generated_at
+agent
+node_health | null
+node_metrics | null
+instances   | null
+errors      { seção: mensagem }
+```
 
-compute-agent/
+A coleta é parcialmente tolerante a falhas. `agent` e `generated_at` sempre compõem a resposta; falhas isoladas em health, métricas ou inventário tornam somente a seção correspondente `null` e são registradas em `errors`.
 
-├── pyproject.toml
+### Logging operacional
 
-├── start.sh
+Cada linha contém timestamp UTC, nível, logger e mensagem. Os eventos operacionais estruturados acrescentam `event=...`:
 
-├── stop.sh
+```text
+timestamp UTC level logger event=...
+```
 
-├── stop-final.sh
+As famílias atuais incluem `instance.create.*`, `instance.start.*`, `instance.stop.*`, `instance.restart.*`, `instance.delete.*`, `auth.*` e `recovery.*`. São registrados pedidos, rejeições, conclusão, rollback e tipo de erro, sem material secreto.
 
-├── tests/
+## 10. Recovery e reconciliação
 
-│   └── e2e/
+A reconciliação executa automaticamente no startup e pode ser solicitada por `POST /node/reconcile`. Ela usa os mesmos locks do lifecycle, sempre na ordem `instance → runtime`, e revalida o estado do domínio dentro do lock.
 
-│       ├── \_\_init\_\_.py
+| Estado observado | Ação conservadora |
+|---|---|
+| VM parada + runtime residual | Libera lease, DHCP, forward e NIC; inclui o nome em `recovered` |
+| VM parada + sem runtime | Mantém; inclui em `unchanged` |
+| VM ativa + runtime | Mantém; inclui em `unchanged` |
+| VM ativa + sem runtime | Não reconstrói automaticamente; mantém e deixa a invariante detectar |
+| Metadata sem nome, marcada como deletada ou sem domínio | Ignora; não executa remoção arbitrária |
+| Falha por instância | Registra em `errors` |
 
-│       └── test\_instance\_lifecycle.py
+No startup, qualquer erro de recovery aborta a inicialização. Em seguida, as invariantes são verificadas; ocorrência crítica também impede a API de iniciar. O endpoint manual retorna `healthy: false` quando o relatório contém erros.
 
-└── src/
+## 11. API Reference
 
-    └── jorge\_agent/
+Base local: `http://127.0.0.1:8000`.
 
-        ├── \_\_init\_\_.py
+| Método | Endpoint | Auth | Finalidade |
+|---|---|---|---|
+| `GET` | `/health` | Pública | Liveness minimalista do processo |
+| `GET` | `/agent/status` | Bearer | Versão, início e uptime do agente |
+| `GET` | `/hypervisor/health` | Bearer | URI, host, versão e contagens do libvirt |
+| `GET` | `/node/health` | Bearer | Health, readiness, invariantes e capacidade do nó |
+| `GET` | `/node/metrics` | Bearer | CPU, memória e discos do host |
+| `GET` | `/node/snapshot` | Bearer | Snapshot agregado e tolerante a falhas parciais |
+| `POST` | `/node/reconcile` | Bearer | Reconcilia runtimes residuais seguros |
+| `GET` | `/instances` | Bearer | Lista domínios gerenciados |
+| `POST` | `/instances` | Bearer | Cria uma instância parada |
+| `GET` | `/instances/{name}` | Bearer | Detalha uma instância |
+| `POST` | `/instances/{name}/start` | Bearer | Aloca runtime e inicia |
+| `POST` | `/instances/{name}/stop` | Bearer | Para e libera runtime |
+| `POST` | `/instances/{name}/restart` | Bearer | Reinicia preservando runtime |
+| `DELETE` | `/instances/{name}` | Bearer | Remove instância parada; query `delete_data=false` |
+| `GET` | `/instances/{name}/health` | Bearer | Estado da VM e disponibilidade Minecraft |
+| `GET` | `/instances/{name}/metrics` | Bearer | Métricas da VM |
+| `POST` | `/instances/{name}/minecraft/command` | Bearer | Executa um comando RCON |
+| `WS` | `/instances/{name}/console` | Bearer no handshake | Console serial bidirecional da VM |
+| `WS` | `/instances/{name}/minecraft/console` | Bearer no handshake | Console Minecraft por comandos RCON |
 
-        ├── config.py
+### Requests principais
 
-        ├── main.py
+Carregue o token sem imprimi-lo:
 
-        ├── schemas/
-
-        │   ├── \_\_init\_\_.py
-
-        │   └── instance.py
-
-        └── services/
-
-            ├── \_\_init\_\_.py
-
-            ├── auth\_service.py
-
-            ├── cloud\_init\_service.py
-
-            ├── console\_bridge.py
-
-            ├── console\_service.py
-
-            ├── credential\_service.py
-
-            ├── domain\_service.py
-
-            ├── health\_service.py
-
-            ├── instance\_service.py
-
-            ├── invariant\_service.py
-
-            ├── libvirt\_service.py
-
-            ├── lock\_service.py
-
-            ├── metadata\_service.py
-
-            ├── metrics\_service.py
-
-            ├── minecraft\_console\_bridge.py
-
-            ├── rcon\_service.py
-
-            ├── recovery\_service.py
-
-            ├── runtime\_service.py
-
-            ├── secret\_service.py
-
-            └── storage\_service.py
-
-\`\`\`
-
-Responsabilidade de cada módulo:
-
-\| Arquivo | Responsabilidade real |
-
-\|---|---|
-
-\| \`config.py\` | dataclasses e objetos de configuração estática compartilhada |
-
-\| \`main.py\` | aplicação FastAPI, endpoints, WebSockets e startup recovery/invariants |
-
-\| \`schemas/instance.py\` | validação de entrada, enums e modelos públicos de resposta |
-
-\| \`services/instance\_service.py\` | orquestra lifecycle, locks e rollback entre services |
-| \`services/auth\_service.py\` | valida Bearer token para HTTP e WebSocket e lê o secret do agente |
-| \`services/lock\_service.py\` | implementa locks exclusivos por instância e lock global de runtime com \`flock\` |
-
-\| \`services/domain\_service.py\` | define XML do domínio e controla start, shutdown, reboot e undefine |
-
-\| \`services/storage\_service.py\` | cria e remove overlays e volumes nos pools libvirt |
-
-\| \`services/cloud\_init\_service.py\` | gera configuração NoCloud e bootstrap da VM/Minecraft |
-
-\| \`services/runtime\_service.py\` | aloca slot e gerencia NIC, DHCP, lease, forwards e firewall |
-
-\| \`services/metadata\_service.py\` | persiste e lê descrição não secreta da instância |
-
-\| \`services/secret\_service.py\` | gera, protege, lê e remove secret RCON |
-
-\| \`services/credential\_service.py\` | resolve senha fornecida ou gera credencial da VM |
-
-\| \`services/libvirt\_service.py\` | mapeia estados e fornece listagem/detalhe/hypervisor health |
-
-\| \`services/health\_service.py\` | combina estado da VM com probe TCP do Minecraft |
-
-\| \`services/metrics\_service.py\` | coleta CPU, memória, volumes e interfaceStats |
-
-\| \`services/rcon\_service.py\` | implementa protocolo e execução de comando RCON |
-
-\| \`services/console\_service.py\` | mantém conexão e stream do console serial libvirt |
-
-\| \`services/console\_bridge.py\` | bridge assíncrona entre stream serial e WebSocket |
-
-\| \`services/minecraft\_console\_bridge.py\` | bridge WebSocket de comandos para RCON |
-
-\| \`services/recovery\_service.py\` | reconcilia runtime de VMs paradas no startup |
-
-\| \`services/invariant\_service.py\` | verifica pré-condições e coerência operacional do nó |
-
-\| \`\_\_init\_\_.py\` | marca os diretórios como pacotes; não contém lógica atualmente |
-
-**## Dependências entre services**
-
-\`\`\`mermaid
-
-graph TD
-
-    MAIN[main] --> AUTH[auth\_service]
-
-    MAIN --> INSTANCE[instance\_service]
-
-    MAIN --> LIBVIRT\_S[libvirt\_service]
-
-    MAIN --> HEALTH[health\_service]
-
-    MAIN --> METRICS[metrics\_service]
-
-    MAIN --> RCON[rcon\_service]
-
-    MAIN --> CB[console\_bridge]
-
-    MAIN --> MCB[minecraft\_console\_bridge]
-
-    MAIN --> RECOVERY[recovery\_service]
-
-    MAIN --> INVARIANT[invariant\_service]
-
-    INSTANCE --> LOCK[lock\_service]
-
-    INSTANCE --> DOMAIN[domain\_service]
-
-    INSTANCE --> STORAGE[storage\_service]
-
-    INSTANCE --> CLOUD[cloud\_init\_service]
-
-    INSTANCE --> CREDENTIAL[credential\_service]
-
-    INSTANCE --> RUNTIME[runtime\_service]
-
-    INSTANCE --> META[metadata\_service]
-
-    INSTANCE --> SECRET[secret\_service]
-
-    LIBVIRT\_S --> META
-
-    LIBVIRT\_S --> RUNTIME
-
-    HEALTH --> LIBVIRT\_S
-
-    HEALTH --> RUNTIME
-
-    METRICS --> LIBVIRT\_S
-
-    RCON --> RUNTIME
-
-    RCON --> SECRET
-
-    MCB --> RCON
-
-    CB --> CONSOLE[console\_service]
-
-    RECOVERY --> RUNTIME
-
-    INVARIANT --> RUNTIME
-
-\`\`\`
-
-O principal ponto de acoplamento é \`instance\_service.py\`, que conhece os services necessários para cada transição e aplica os locks de lifecycle. \`runtime\_service.py\` reúne responsabilidades que atravessam libvirt, XML de rede, filesystem e subprocessos privilegiados. \`auth\_service.py\` permanece na borda da aplicação: autentica chamadas antes que elas alcancem os services de infraestrutura.
-
-**## Diretórios operacionais**
-
-O layout esperado no Compute Node é aproximadamente:
-
-\`\`\`text
-
-/srv/mc-iaas/
-
-├── storage/
-
-│   ├── images/
-
-│   │   └── ubuntu-24.04-minimal-base.qcow2
-
-│   ├── instances/          # backing esperado do pool mc-instances
-
-│   └── volumes/            # backing esperado do pool mc-volumes
-
-├── cloud-init/
-
-│   └── {instance}/
-
-├── metadata/
-
-├── secrets/
-│   ├── agent-api-token        # Bearer token do Compute Agent
-│   └── {instance}.json        # secret RCON por instância
-
-├── config/
-
-│   └── port-forwards.conf
-
-├── scripts/
-
-│   ├── apply-firewall.sh
-
-│   └── release-dhcp-lease.sh
-
-├── logs/
-
-│   └── jorge-agent.log
-
-└── run/
-    ├── jorge-agent.pid
-    └── locks/
-        ├── runtime.lock
-        └── instances/
-            └── {name}.lock
-
-\`\`\`
-
-Os caminhos de \`instances/\` e \`volumes/\` dependem da configuração efetiva dos pools libvirt. O script \`apply-firewall.sh\` e a instalação dos helpers no host não estão integralmente representados neste checkout.
-
-**## Scripts de lifecycle**
-
-**### \`compute-agent/start.sh\`**
-
-1\. verifica e inicia \`mc-net\`;
-
-2\. verifica e inicia os três pools;
-
-3\. aplica o firewall;
-
-4\. inicia Uvicorn com \`nohup\` se a API não estiver ativa;
-
-5\. grava PID, aguarda \`/health\` e mostra o caminho do log.
-
-O repositório também contém \`../start.sh\`, que cumpre papel semelhante a partir da raiz, mas usa verificações \`virsh\` mais diretas. Os dois scripts não são wrappers um do outro.
-
-**### \`compute-agent/stop.sh\`**
-
-Para somente o processo \`jorge-agent\`. Usa o PID file e, como fallback, procura o processo Uvicorn. Depois de 10 segundos, envia \`SIGKILL\`. Não para VMs, rede ou pools.
-
-**### \`compute-agent/stop-final.sh\`**
-
-Executa shutdown operacional completo:
-
-1\. garante que o agente esteja disponível;
-
-2\. lista e para graciosamente todas as instâncias;
-
-3\. verifica invariantes;
-
-4\. para o agente;
-
-5\. desativa \`mc-net\` e os pools em ordem inversa.
-
-Os dados persistentes são preservados. Esse script não equivale a DELETE das instâncias. Como \`/instances\` e os endpoints de STOP são administrativos, o script carrega o Bearer token local e autentica essas chamadas; \`/health\` permanece sem autenticação.
-
-Não há unit de systemd do agente versionada atualmente; o gerenciamento implementado neste checkout usa scripts, \`nohup\`, log e PID file.
-
-**## Como executar**
-
-**### Pré-requisitos**
-
-O host precisa fornecer:
-
-\- Linux com KVM/QEMU e libvirt;
-
-\- Python 3.11 ou superior;
-
-\- \`cloud-localds\`;
-
-\- rede \`mc-net\` e pools libvirt configurados;
-
-\- imagem base no caminho esperado;
-
-\- helpers de DHCP e firewall instalados;
-
-\- permissões/sudo não interativo para os scripts necessários.
-
-**### Ambiente Python**
-
-Na raiz de \`compute-agent/\`:
-
-\`\`\`bash
-
-python3 -m venv .venv
-
-.venv/bin/python -m pip install -e '.[compute,dev]'
-
-\`\`\`
-
-O extra \`compute\` instala \`libvirt-python\`; o extra \`dev\` instala \`pytest\` e \`httpx\`.
-
-**### Inicialização**
-
-\`\`\`bash
-
-./start.sh
-
-\`\`\`
-
-Para desenvolvimento local no Compute Node, a aplicação também pode ser iniciada diretamente:
-
-\`\`\`bash
-
-.venv/bin/python -m uvicorn \\
-
-    jorge\_agent.main\:app \\
-
-    \--host 127.0.0.1 \\
-
-    \--port 8000
-
-\`\`\`
-
-Health básico:
-
-\`\`\`bash
-
-curl -fsS http\://127.0.0.1:8000/health
-
-\`\`\`
-
-
-**### Secret de autenticação do agente**
-
-Antes de iniciar uma versão protegida do agente no Compute Node, o arquivo abaixo precisa existir e conter um token não vazio:
-
-\`\`\`text
-
-/srv/mc-iaas/secrets/agent-api-token
-
-\`\`\`
-
-Uma instalação típica deve restringir o arquivo ao usuário operacional, por exemplo modo \`0600\`. O token deve ser gerado com fonte criptograficamente segura e nunca commitado no Git.
-
-Exemplo de chamada administrativa local:
-
-\`\`\`bash
-
+```bash
 TOKEN="$(< /srv/mc-iaas/secrets/agent-api-token)"
+AUTH=(-H "Authorization: Bearer $TOKEN")
+```
 
-curl -fsS \
-    -H "Authorization: Bearer $TOKEN" \
-    http://127.0.0.1:8000/instances
+Criar uma instância (a resposta é `201` e permanece sem runtime):
 
-unset TOKEN
+```bash
+curl -fsS "${AUTH[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "name": "survival-01",
+    "vm_username": "adminmc",
+    "memory_mb": 2048,
+    "vcpus": 1,
+    "minecraft_version": "26.2",
+    "accept_eula": true
+  }' \
+  http://127.0.0.1:8000/instances
+```
 
-\`\`\`
+As ações de lifecycle não possuem body:
 
-Para desenvolvimento a partir de outro computador, prefira um túnel SSH em vez de alterar o bind do Uvicorn apenas para testes:
+```bash
+curl -fsS "${AUTH[@]}" -X POST \
+  http://127.0.0.1:8000/instances/survival-01/start
+```
 
-\`\`\`text
+Executar RCON:
 
-notebook:127.0.0.1:8000
-        ↓
-      SSH
-        ↓
-JORGE:127.0.0.1:8000
+```bash
+curl -fsS "${AUTH[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{"command":"list"}' \
+  http://127.0.0.1:8000/instances/survival-01/minecraft/command
+```
 
-\`\`\`
+Ao terminar, remova a variável local:
 
+```bash
+unset TOKEN AUTH
+```
 
-**## Testes**
+### Respostas e erros
 
-A suíte em \`tests/e2e/test\_instance\_lifecycle.py\` usa \`pytest\` e \`httpx\` contra a API real. O cliente HTTP é configurado com Bearer token uma vez e todas as requisições administrativas herdam o header. Ela cobre:
+| Código | Uso atual |
+|---:|---|
+| `200` | Consultas, ações, delete, RCON e reconciliation bem-sucedidos |
+| `201` | Instância criada |
+| `400` | Regra de criação inválida após validação do schema, como EULA recusada ou versão sem suporte |
+| `401` | Bearer token ausente, malformado ou inválido |
+| `404` | Instância ou secret associado não encontrado |
+| `409` | Conflito de lifecycle, runtime/quota sem slot ou erro de protocolo/autenticação RCON |
+| `422` | Payload ou parâmetros rejeitados pela validação FastAPI/Pydantic |
+| `500` | Falha interna não classificada na operação |
+| `503` | Componente necessário indisponível: autenticação, libvirt, coleta do nó ou RCON |
+| `504` | Timeout no shutdown durante `STOP` ou `DELETE` |
 
-\`\`\`text
+Erros HTTP usam o formato padrão `{"detail": "..."}`. Um `/node/health` não ready pode responder `200` com `ready: false`; `503` indica que a avaliação em si não pôde ser concluída.
 
-API health e invariantes
+Nos WebSockets, autenticação inválida é rejeitada antes de `websocket.accept()`, sem abrir o console. Depois do handshake, o console serial usa `4404` para instância ausente, `4409` para conflito de estado e `1011` para erro interno.
 
-→ CREATE / GET / LIST
-
-→ START e readiness
-
-→ health / metrics / RCON
-
-→ RESTART e novo readiness
-
-→ STOP
-
-→ segundo START / STOP
-
-→ DELETE destrutivo
-
-→ verificação de artefatos
-
-→ invariantes finais
-
-\`\`\`
-
-O teste cria VM, volumes e regras de rede reais. Por segurança, é marcado com \`e2e\` e ignorado sem opt-in explícito.
-
-No Compute Node JORGE:
-
-\`\`\`bash
-
-MC\_IAAS\_RUN\_E2E=1 \\
-
-.venv/bin/python -m pytest \\
-
-    -v -s -m e2e tests/e2e
-
-\`\`\`
-
-Usar \`python -m pytest\` garante que o pytest executado pertence ao mesmo Python do venv que contém \`libvirt-python\` e o pacote editável.
-
-Variáveis opcionais:
-
-\| Variável | Default | Uso |
-
-\|---|---:|---|
-
-\| \`MC\_IAAS\_API\_URL\` | \`http\://127.0.0.1:8000\` | base URL da API |
-| \`MC\_IAAS\_API\_TOKEN\` | vazio | token Bearer fornecido diretamente ao E2E |
-| \`MC\_IAAS\_API\_TOKEN\_FILE\` | \`/srv/mc-iaas/secrets/agent-api-token\` | arquivo usado quando o token não é fornecido por variável |
-
-\| \`MC\_IAAS\_REQUEST\_TIMEOUT\_SECONDS\` | \`90\` | timeout HTTP |
-
-\| \`MC\_IAAS\_MINECRAFT\_TIMEOUT\_SECONDS\` | \`300\` | primeiro boot/readiness |
-
-\| \`MC\_IAAS\_RCON\_TIMEOUT\_SECONDS\` | \`60\` | readiness RCON |
-
-\| \`MC\_IAAS\_POLL\_INTERVAL\_SECONDS\` | \`2\` | intervalo de polling |
-
-Sem opt-in, a coleta é segura:
-
-\`\`\`bash
-
-.venv/bin/python -m pytest -m e2e
-
-\# resultado esperado: skipped
-
-\`\`\`
-
-Não há atualmente testes unitários versionados.
-
-**## Limitações atuais**
-
-\- somente quatro slots de runtime;
-
-\- API deliberadamente restrita ao loopback; transporte remoto permanente para o Control Plane ainda não definido;
-
-\- autenticação atual usa um Bearer token compartilhado; rotação, revogação e múltiplas credenciais não estão implementadas;
-
-\- Control Plane e scheduler distribuído não implementados;
-
-\- configuração libvirt e scripts privilegiados dependem do host;
-
-\- ausência de restore para volume preservado;
-
-\- shutdown síncrono pode aguardar até 60 segundos;
-
-\- health Minecraft não implica readiness imediata do RCON;
-
-\- catálogo com uma única versão Minecraft;
-
-\- ausência de testes unitários e de uma suíte automática específica de concorrência/segurança;
-
-\- integração WAN e múltiplos Compute Nodes não validados neste código;
-
-\- os limites adicionais para mensagens de console/WebSocket além das validações já existentes ainda podem ser endurecidos no futuro.
-
-**## Próximos passos**
-
-Evoluções coerentes com o estado atual incluem:
-
-\- definir um canal remoto privado/seguro entre Control Plane e Compute Agent sem expor indiscriminadamente a porta 8000;
-
-\- definir distribuição, rotação e revogação do token de agente para múltiplos Compute Nodes;
-
-\- scheduler e inventário de múltiplos nós;
-
-\- observabilidade agregada do host e dos workloads;
-
-\- restore explícito de mundos preservados;
-
-\- gerenciamento do agente por systemd em vez de apenas \`nohup\`/PID file;
-
-\- testes unitários, testes automáticos de concorrência e cenários de falha controlada;
-
-\- endurecer limites de mensagens de console/RCON caso o Control Plane passe a aceitar entrada menos confiável.
-
-Autenticação Bearer, locks de concorrência e quotas básicas já fazem parte do estado implementado e não devem mais ser descritos como trabalho futuro.
-
-
-**## Checkpoint do Passo 6 — quotas, segurança e concorrência**
-
-O Passo 6 consolidou três propriedades que antes estavam incompletas na infraestrutura:
-
-1. **Concorrência:** mutações da mesma instância são serializadas e a alocação compartilhada de runtime possui lock global. O modelo evita que duas chamadas concorrentes consumam o mesmo slot/IP/porta.
-
-2. **Quotas:** CREATE é validado para memória de 512–2048 MiB e 1 vCPU; a capacidade simultânea do nó é limitada pelos quatro slots de runtime.
-
-3. **Segurança:** somente \`/health\` permanece público; HTTP administrativo e WebSockets exigem Bearer token, o secret fica fora do Git, Swagger/OpenAPI público foi desabilitado e consumidores internos foram adaptados para autenticar.
-
-Também foi formalizada a política de conflitos do lifecycle, especialmente a exigência de STOP antes de DELETE.
-
-Os cenários principais foram validados manualmente no Compute Node JORGE. Os testes automáticos específicos de concorrência, quotas e segurança foram adiados e permanecem como dívida de testes, não como ausência das proteções de runtime descritas acima.
-
-
-**## Evolução da arquitetura interna**
-
-O agente está organizado principalmente por services. A leitura das dependências evidencia alguns limites de domínio que podem orientar uma modularização futura sem determinar uma estrutura definitiva:
-
-\- **\*\*virtualization:\*\*** domínio, estado libvirt e console serial;
-
-\- **\*\*storage:\*\*** imagem base, overlays e volumes persistentes;
-
-\- **\*\*runtime/network:\*\*** slots, NIC, DHCP, leases, port-forward e firewall;
-
-\- **\*\*provisioning:\*\*** cloud-init, credenciais e bootstrap;
-
-\- **\*\*minecraft:\*\*** RCON, health e console de comandos;
-
-\- **\*\*observability:\*\*** health, métricas e invariantes;
-
-\- **\*\*persistence:\*\*** metadata e secrets;
-
-\- **\*\*orchestration/recovery:\*\*** lifecycle, rollback e reconciliação.
-
-Hoje, \`instance\_service.py\` coordena vários desses limites e \`runtime\_service.py\` concentra operações de rede e infraestrutura. Tornar essas fronteiras explícitas na documentação facilita avaliar, no futuro, onde separar contratos sem alterar prematuramente uma implementação que já funciona.
+## 12. Instalação e operação
+
+### Pré-requisitos
+
+- Linux com KVM/QEMU e libvirt (`qemu:///system`);
+- Python 3.11 ou superior;
+- `cloud-localds`;
+- rede libvirt `mc-net` e pools `mc-images`, `mc-instances`, `mc-volumes` configurados;
+- imagem base no caminho documentado;
+- scripts de firewall e liberação DHCP instalados em `/srv/mc-iaas/scripts/`;
+- `sudo -n` autorizado para os helpers necessários;
+- token não vazio em `/srv/mc-iaas/secrets/agent-api-token`, fora do Git e preferencialmente com modo `0600`.
+
+### Ambiente Python
+
+Na pasta `compute-agent/`:
+
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -e '.[compute,dev]'
+```
+
+O extra `compute` instala `libvirt-python`; `dev` instala `pytest` e `httpx`.
+
+### Scripts
+
+```bash
+./start.sh       # prepara rede/pools/firewall e inicia o agente
+./stop.sh        # para somente o processo do agente
+./stop-final.sh  # para VMs, valida invariantes e desativa a infraestrutura
+```
+
+`start.sh` ativa `mc-net` e os três pools, aplica o firewall, inicia Uvicorn via `nohup`, grava o PID e aguarda `/health`. O bind é `127.0.0.1:8000` e o output vai para `/srv/mc-iaas/logs/jorge-agent.log`.
+
+`stop.sh` tenta `SIGTERM`, usa o PID file ou procura o Uvicorn como fallback e envia `SIGKILL` após 10 s. Não para VMs, rede nem pools.
+
+`stop-final.sh` garante que o agente esteja disponível, para graciosamente todas as VMs, verifica invariantes, para o processo e desativa rede/pools. Ele autentica suas chamadas administrativas com o token local e preserva os dados. Não equivale a `DELETE`.
+
+Também é possível iniciar diretamente no Compute Node:
+
+```bash
+.venv/bin/python -m uvicorn \
+  jorge_agent.main:app \
+  --host 127.0.0.1 \
+  --port 8000
+```
+
+Probe local:
+
+```bash
+curl -fsS http://127.0.0.1:8000/health
+```
+
+Não há unit systemd versionada; o gerenciamento atual usa scripts, `nohup`, log e PID file.
+
+## 13. Testes
+
+A suíte E2E percorre o lifecycle real: `CREATE`, consultas, `START`, readiness Minecraft/RCON, métricas, `RESTART`, `STOP`, segundo ciclo, `DELETE` destrutivo, artefatos e invariantes finais.
+
+Ela cria VMs, volumes e regras de rede reais. Por segurança, é ignorada sem opt-in:
+
+```bash
+MC_IAAS_RUN_E2E=1 \
+.venv/bin/python -m pytest -v -s -m e2e tests/e2e
+```
+
+| Variável | Default | Uso |
+|---|---|---|
+| `MC_IAAS_API_URL` | `http://127.0.0.1:8000` | Base URL |
+| `MC_IAAS_API_TOKEN` | vazio | Token fornecido diretamente |
+| `MC_IAAS_API_TOKEN_FILE` | `/srv/mc-iaas/secrets/agent-api-token` | Fallback para o token |
+| `MC_IAAS_REQUEST_TIMEOUT_SECONDS` | `90` | Timeout HTTP |
+| `MC_IAAS_MINECRAFT_TIMEOUT_SECONDS` | `300` | Primeiro boot/readiness |
+| `MC_IAAS_RCON_TIMEOUT_SECONDS` | `60` | Readiness RCON |
+| `MC_IAAS_POLL_INTERVAL_SECONDS` | `2` | Polling |
+
+Não há testes unitários versionados.
+
+## 14. Limitações e roadmap
+
+Limitações atuais:
+
+- capacidade fixa de quatro slots;
+- API deliberadamente em loopback; transporte permanente até o Control Plane não definido;
+- um Bearer token compartilhado, sem rotação, revogação ou múltiplas credenciais;
+- Control Plane e scheduler multi-node ainda não implementados;
+- dependência de configuração libvirt e scripts privilegiados do host;
+- sem restore para volume preservado;
+- shutdown síncrono pode aguardar 60 s;
+- health Minecraft não garante readiness RCON;
+- catálogo com uma única versão Minecraft;
+- sem systemd, rotação de logs ou testes unitários versionados.
+
+Status resumido:
+
+- Passo 5 — Compute Agent ✅
+- Passo 6 — Quotas, Security & Concurrency ✅
+- Passo 7 — Monitoring & Recovery ✅
+    - 7.1 Node health/readiness ✅
+    - 7.2 Agent status/uptime ✅
+    - 7.3 Host metrics ✅
+    - 7.4 Instance health/metrics ✅
+    - 7.5 Invariant severity ✅
+    - 7.6 Recovery/reconciliation ✅
+    - 7.7 Operational logging ✅
+    - 7.8 Node snapshot ✅
+    - 7.9 Controlled failure/recovery validation ✅
+- Próximo: Passo 8 — integração com o Control Plane
