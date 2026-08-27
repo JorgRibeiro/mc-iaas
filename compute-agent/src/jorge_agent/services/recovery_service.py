@@ -160,11 +160,4 @@ def reconcile_instance_runtimes() -> RecoveryReport:
         return report
 
     finally:
-        logger.info(
-            "event=recovery.completed "
-            "recovered=%s unchanged=%s errors=%s",
-            len(report.recovered),
-            len(report.unchanged),
-            len(report.errors),
-        )
         conn.close()
