@@ -103,10 +103,15 @@ from jorge_agent.schemas.recovery import (
     RecoveryResponse,
 )
 
-logger = logging.getLogger(
-    "jorge_agent"
+from jorge_agent.logging_config import (
+    configure_logging,
 )
 
+configure_logging()
+
+logger = logging.getLogger(
+    __name__
+)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -117,19 +122,6 @@ async def lifespan(app: FastAPI):
     recovery = (
         reconcile_instance_runtimes()
     )
-
-    for name in recovery.recovered:
-        logger.warning(
-            "Recovered stale runtime: %s",
-            name,
-        )
-
-    for name, error in recovery.errors.items():
-        logger.error(
-            "Runtime recovery failed for %s: %s",
-            name,
-            error,
-        )
 
     if recovery.errors:
         raise RuntimeError(

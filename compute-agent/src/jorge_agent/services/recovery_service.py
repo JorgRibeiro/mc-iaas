@@ -1,4 +1,5 @@
 import json
+import logging
 
 from dataclasses import dataclass, field
 
@@ -14,6 +15,8 @@ from jorge_agent.services.lock_service import (
     instance_lock,
     runtime_lock,
 )
+
+logger = logging.getLogger(__name__)
 
 @dataclass
 class RecoveryReport:
@@ -31,6 +34,9 @@ class RecoveryReport:
 
 
 def reconcile_instance_runtimes() -> RecoveryReport:
+
+    logger.info("event=recovery.started")
+    
     report = RecoveryReport()
 
     conn = libvirt.open(
@@ -127,13 +133,38 @@ def reconcile_instance_runtimes() -> RecoveryReport:
                 report.recovered.append(
                     name
                 )
+                logger.warning(
+                            "event=recovery.runtime_released "
+                            "name=%s",
+                             name,
+                )
 
             except Exception as exc:
                 report.errors[
                     metadata_path.stem
                 ] = str(exc)
+                logger.error(
+                    "event=recovery.failed "
+                    "name=%s error_type=%s",
+                    metadata_path.stem,
+                    type(exc).__name__,
+                )
+        logger.info(
+            "event=recovery.completed "
+            "recovered=%s unchanged=%s errors=%s",
+            len(report.recovered),
+            len(report.unchanged),
+            len(report.errors),
+        )
 
         return report
 
     finally:
+        logger.info(
+            "event=recovery.completed "
+            "recovered=%s unchanged=%s errors=%s",
+            len(report.recovered),
+            len(report.unchanged),
+            len(report.errors),
+        )
         conn.close()

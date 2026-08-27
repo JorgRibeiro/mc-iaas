@@ -1,4 +1,5 @@
 import secrets
+import logging
 
 from fastapi import (
     Header,
@@ -10,6 +11,7 @@ from fastapi import (
 
 from jorge_agent.config import PATHS
 
+logger = logging.getLogger(__name__)
 
 def _load_api_token() -> str:
     token_path = PATHS.agent_api_token_file
@@ -84,6 +86,12 @@ def require_api_token(
         )
 
     except ValueError as exc:
+        logger.warning(
+            "event=auth.failed "
+            "transport=http reason=%s",
+            str(exc).replace(" ", "_").lower(),
+        )
+
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=str(exc),
@@ -93,6 +101,11 @@ def require_api_token(
         ) from exc
 
     except RuntimeError as exc:
+        logger.error(
+            "event=auth.unavailable "
+            "transport=http"
+        )
+
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Agent authentication unavailable",
@@ -112,12 +125,23 @@ def require_websocket_api_token(
         )
 
     except ValueError as exc:
+        logger.warning(
+            "event=auth.failed "
+            "transport=websocket reason=%s",
+            str(exc).replace(" ", "_").lower(),
+        )
+
         raise WebSocketException(
             code=status.WS_1008_POLICY_VIOLATION,
             reason=str(exc),
         ) from exc
 
     except RuntimeError as exc:
+        logger.error(
+            "event=auth.unavailable "
+            "transport=websocket"
+        )
+
         raise WebSocketException(
             code=status.WS_1011_INTERNAL_ERROR,
             reason="Agent authentication unavailable",

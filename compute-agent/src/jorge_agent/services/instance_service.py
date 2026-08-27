@@ -1,3 +1,6 @@
+import logging
+
+
 from jorge_agent.schemas.instance import (
     InstanceCreate,
     InstanceCreateResponse,
@@ -58,26 +61,57 @@ from jorge_agent.services.lock_service import (
     runtime_lock,
 )
 
+logger = logging.getLogger(__name__)
+
 def create_instance(
     instance: InstanceCreate,
 ) -> InstanceCreateResponse:
+    logger.info(
+        "event=instance.create.requested "
+        "name=%s memory_mb=%s vcpus=%s version=%s",
+        instance.name,
+        instance.memory_mb,
+        instance.vcpus,
+        instance.minecraft_version,
+    )
+
     if not instance.accept_eula:
+        logger.warning(
+            "event=instance.create.rejected "
+            "name=%s reason=eula_not_accepted",
+            instance.name,
+        )
+
         raise ValueError(
             "Minecraft EULA must be explicitly accepted"
         )
 
     with instance_lock(instance.name):
         if domain_exists(instance.name):
+            logger.warning(
+                "event=instance.create.rejected "
+                "name=%s reason=domain_exists",
+                instance.name,
+            )
+
             raise FileExistsError(
                 f"Instance already exists: {instance.name}"
             )
 
         if metadata_exists(instance.name):
+            logger.warning(
+                "event=instance.create.rejected "
+                "name=%s reason=metadata_exists",
+                instance.name,
+            )
+
             raise FileExistsError(
                 f"Instance metadata already exists: {instance.name}"
             )
 
-        credential = resolve_vm_credentials(instance)
+        credential = resolve_vm_credentials(
+            instance
+        )
 
         storage_created = False
         cloud_init_created = False
@@ -117,22 +151,46 @@ def create_instance(
             generated_password = None
 
             if credential.generated:
-                generated_password = credential.password
+                generated_password = (
+                    credential.password
+                )
 
-            return InstanceCreateResponse(
+            response = InstanceCreateResponse(
                 name=instance.name,
                 state=InstanceState.STOPPED,
                 vm_username=instance.vm_username,
                 memory_mb=instance.memory_mb,
                 vcpus=instance.vcpus,
-                minecraft_version=instance.minecraft_version,
+                minecraft_version=(
+                    instance.minecraft_version
+                ),
                 runtime=None,
                 generated_password=generated_password,
             )
 
-        except Exception:
-            # Rollback na ordem inversa da criação.
+            logger.info(
+                "event=instance.create.completed "
+                "name=%s state=stopped",
+                instance.name,
+            )
 
+            return response
+
+        except Exception as exc:
+            logger.error(
+                "event=instance.create.failed "
+                "name=%s error_type=%s",
+                instance.name,
+                type(exc).__name__,
+            )
+
+            logger.warning(
+                "event=instance.create.rollback "
+                "name=%s",
+                instance.name,
+            )
+
+            # Rollback na ordem inversa da criação.
             if domain_defined:
                 undefine_instance_domain(
                     instance.name
@@ -158,45 +216,134 @@ def create_instance(
 def start_instance(
     name: str,
 ) -> InstanceActionResponse:
+    logger.info(
+        "event=instance.start.requested name=%s",
+        name,
+    )
+
     with instance_lock(name):
         if not domain_exists(name):
+            logger.warning(
+                "event=instance.start.rejected "
+                "name=%s reason=not_found",
+                name,
+            )
+
             raise FileNotFoundError(
                 f"Instance not found: {name}"
             )
 
-        with runtime_lock():
-            runtime = prepare_instance_runtime(name)
+        try:
+            with runtime_lock():
+                runtime = prepare_instance_runtime(
+                    name
+                )
+
+            logger.info(
+                "event=instance.start.runtime_allocated "
+                "name=%s slot=%s ip=%s port=%s",
+                name,
+                runtime.slot,
+                runtime.ip,
+                runtime.external_port,
+            )
+
+        except Exception as exc:
+            logger.error(
+                "event=instance.start.failed "
+                "name=%s stage=runtime_prepare "
+                "error_type=%s",
+                name,
+                type(exc).__name__,
+            )
+
+            raise
 
         try:
             start_instance_domain(name)
 
-            return InstanceActionResponse(
-                name=name,
-                state=InstanceState.RUNNING,
-                runtime=runtime,
+        except Exception as exc:
+            logger.error(
+                "event=instance.start.failed "
+                "name=%s stage=domain_start "
+                "error_type=%s",
+                name,
+                type(exc).__name__,
             )
 
-        except Exception:
+            logger.warning(
+                "event=instance.start.rollback "
+                "name=%s",
+                name,
+            )
+
             # Se o boot falhar, não podemos deixar
             # IP, porta ou NIC presos.
             with runtime_lock():
-                release_instance_runtime(name)
+                release_instance_runtime(
+                    name
+                )
 
             raise
+
+        logger.info(
+            "event=instance.start.completed "
+            "name=%s slot=%s ip=%s port=%s",
+            name,
+            runtime.slot,
+            runtime.ip,
+            runtime.external_port,
+        )
+
+        return InstanceActionResponse(
+            name=name,
+            state=InstanceState.RUNNING,
+            runtime=runtime,
+        )
 
 def stop_instance(
     name: str,
 ) -> InstanceActionResponse:
+    logger.info(
+        "event=instance.stop.requested name=%s",
+        name,
+    )
+
     with instance_lock(name):
         if not domain_exists(name):
+            logger.warning(
+                "event=instance.stop.rejected "
+                "name=%s reason=not_found",
+                name,
+            )
+
             raise FileNotFoundError(
                 f"Instance not found: {name}"
             )
 
-        stop_instance_domain(name)
+        try:
+            stop_instance_domain(name)
 
-        with runtime_lock():
-            release_instance_runtime(name)
+            with runtime_lock():
+                release_instance_runtime(
+                    name
+                )
+
+        except Exception as exc:
+            logger.error(
+                "event=instance.stop.failed "
+                "name=%s error_type=%s",
+                name,
+                type(exc).__name__,
+            )
+
+            raise
+
+        logger.info(
+            "event=instance.stop.completed "
+            "name=%s state=stopped",
+            name,
+        )
 
         return InstanceActionResponse(
             name=name,
@@ -207,20 +354,61 @@ def stop_instance(
 def restart_instance(
     name: str,
 ) -> InstanceActionResponse:
+    logger.info(
+        "event=instance.restart.requested name=%s",
+        name,
+    )
+
     with instance_lock(name):
         if not domain_exists(name):
+            logger.warning(
+                "event=instance.restart.rejected "
+                "name=%s reason=not_found",
+                name,
+            )
+
             raise FileNotFoundError(
                 f"Instance not found: {name}"
             )
 
-        runtime = get_instance_runtime(name)
+        runtime = get_instance_runtime(
+            name
+        )
 
         if runtime is None:
+            logger.warning(
+                "event=instance.restart.rejected "
+                "name=%s reason=no_runtime",
+                name,
+            )
+
             raise RuntimeError(
                 f"Instance has no active runtime: {name}"
             )
 
-        restart_instance_domain(name)
+        try:
+            restart_instance_domain(
+                name
+            )
+
+        except Exception as exc:
+            logger.error(
+                "event=instance.restart.failed "
+                "name=%s error_type=%s",
+                name,
+                type(exc).__name__,
+            )
+
+            raise
+
+        logger.info(
+            "event=instance.restart.completed "
+            "name=%s slot=%s ip=%s port=%s",
+            name,
+            runtime.slot,
+            runtime.ip,
+            runtime.external_port,
+        )
 
         return InstanceActionResponse(
             name=name,
@@ -232,49 +420,118 @@ def delete_instance(
     name: str,
     delete_data: bool = False,
 ) -> InstanceDeleteResponse:
+    logger.info(
+        "event=instance.delete.requested "
+        "name=%s delete_data=%s",
+        name,
+        delete_data,
+    )
+
     with instance_lock(name):
         if not domain_exists(name):
+            logger.warning(
+                "event=instance.delete.rejected "
+                "name=%s reason=not_found",
+                name,
+            )
+
             raise FileNotFoundError(
                 f"Instance not found: {name}"
             )
 
         if is_instance_active(name):
+            logger.warning(
+                "event=instance.delete.rejected "
+                "name=%s reason=instance_active",
+                name,
+            )
+
             raise RuntimeError(
                 f"Instance must be stopped before deletion: {name}"
             )
 
-        # 1. Libera qualquer runtime residual.
-        with runtime_lock():
-            release_instance_runtime(name)
+        try:
+            # 1. Libera qualquer runtime residual.
+            with runtime_lock():
+                release_instance_runtime(
+                    name
+                )
 
-        # 3. Guarda o caminho antes de qualquer remoção.
-        preserved_volume = data_volume_path(name)
-
-        # 4. Remove o domínio do libvirt.
-        undefine_instance_domain(name)
-
-        # 5. Remove artefatos descartáveis.
-        delete_cloud_init_artifacts(name)
-        delete_instance_secrets(name)
-        delete_system_disk(name)
-
-        # 6. O volume persistente é tratado por último.
-        if delete_data:
-            delete_data_volume(name)
-            delete_instance_metadata(name)
-
-            return InstanceDeleteResponse(
-                name=name,
-                deleted=True,
-                data_preserved=False,
-                data_volume=None,
+            # 2. Guarda o caminho antes
+            # de qualquer remoção.
+            preserved_volume = (
+                data_volume_path(name)
             )
 
-        mark_instance_deleted(name)
+            # 3. Remove o domínio do libvirt.
+            undefine_instance_domain(
+                name
+            )
 
-        return InstanceDeleteResponse(
-            name=name,
-            deleted=True,
-            data_preserved=True,
-            data_volume=preserved_volume,
+            # 4. Remove artefatos descartáveis.
+            delete_cloud_init_artifacts(
+                name
+            )
+
+            delete_instance_secrets(
+                name
+            )
+
+            delete_system_disk(
+                name
+            )
+
+            # 5. O volume persistente
+            # é tratado por último.
+            if delete_data:
+                delete_data_volume(
+                    name
+                )
+
+                delete_instance_metadata(
+                    name
+                )
+
+                response = (
+                    InstanceDeleteResponse(
+                        name=name,
+                        deleted=True,
+                        data_preserved=False,
+                        data_volume=None,
+                    )
+                )
+
+            else:
+                mark_instance_deleted(
+                    name
+                )
+
+                response = (
+                    InstanceDeleteResponse(
+                        name=name,
+                        deleted=True,
+                        data_preserved=True,
+                        data_volume=(
+                            preserved_volume
+                        ),
+                    )
+                )
+
+        except Exception as exc:
+            logger.error(
+                "event=instance.delete.failed "
+                "name=%s error_type=%s",
+                name,
+                type(exc).__name__,
+            )
+
+            raise
+
+        logger.info(
+            "event=instance.delete.completed "
+            "name=%s data_preserved=%s",
+            name,
+            response.data_preserved,
         )
+
+        return response 
