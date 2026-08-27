@@ -1,6 +1,7 @@
 import json
 
 from dataclasses import dataclass
+from enum import Enum
 
 import libvirt
 
@@ -14,11 +15,17 @@ from jorge_agent.services.runtime_service import (
     get_instance_runtime,
 )
 
+class InvariantSeverity(str, Enum):
+    WARNING = "warning"
+    CRITICAL = "critical"
 
 @dataclass(frozen=True)
 class InvariantIssue:
     code: str
     detail: str
+    severity: InvariantSeverity = (
+        InvariantSeverity.CRITICAL
+    )
     instance: str | None = None
 
 
@@ -26,6 +33,22 @@ class InvariantIssue:
 class InvariantReport:
     healthy: bool
     issues: list[InvariantIssue]
+
+    @property
+    def has_critical(self) -> bool:
+        return any(
+            issue.severity
+            == InvariantSeverity.CRITICAL
+            for issue in self.issues
+        )
+
+    @property
+    def has_warnings(self) -> bool:
+        return any(
+            issue.severity
+            == InvariantSeverity.WARNING
+            for issue in self.issues
+        )
 
 
 def _check_network(
@@ -281,6 +304,26 @@ def _check_instances(
             )
 
 
+def _has_critical_issues(
+    issues: list[InvariantIssue],
+) -> bool:
+    return any(
+        issue.severity
+        == InvariantSeverity.CRITICAL
+        for issue in issues
+    )
+
+
+def _has_warning_issues(
+    issues: list[InvariantIssue],
+) -> bool:
+    return any(
+        issue.severity
+        == InvariantSeverity.WARNING
+        for issue in issues
+    )
+
+
 def check_invariants() -> InvariantReport:
     issues: list[InvariantIssue] = []
 
@@ -290,17 +333,13 @@ def check_invariants() -> InvariantReport:
 
     if conn is None:
         return InvariantReport(
-            healthy=False,
-            issues=[
-                InvariantIssue(
-                    code="libvirt_unavailable",
-                    detail=(
-                        "Could not connect "
-                        "to libvirt"
-                    ),
-                )
-            ],
-        )
+                healthy=not any(
+                    issue.severity
+                    == InvariantSeverity.CRITICAL
+                    for issue in issues
+                ),
+                issues=issues,
+            )
 
     try:
         _check_network(
@@ -341,6 +380,8 @@ def check_invariants() -> InvariantReport:
         conn.close()
 
     return InvariantReport(
-        healthy=not issues,
-        issues=issues,
+    healthy=not _has_critical_issues(
+        issues
+    ),
+    issues=issues,
     )

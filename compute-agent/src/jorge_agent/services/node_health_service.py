@@ -11,6 +11,7 @@ from jorge_agent.schemas.node import (
 
 from jorge_agent.services.invariant_service import (
     InvariantIssue,
+    InvariantSeverity,
     check_invariants,
 )
 
@@ -111,13 +112,16 @@ def get_node_health() -> NodeHealthResponse:
         available_slots=available_slots,
     )
 
-    ready = invariant_report.healthy
+    ready = not invariant_report.has_critical
 
-    node_status = (
-        NodeStatus.HEALTHY
-        if ready
-        else NodeStatus.UNHEALTHY
-    )
+    if invariant_report.has_critical:
+        node_status = NodeStatus.UNHEALTHY
+
+    elif invariant_report.has_warnings:
+        node_status = NodeStatus.DEGRADED
+
+    else:
+        node_status = NodeStatus.HEALTHY
 
     return NodeHealthResponse(
         status=node_status,
