@@ -2,6 +2,16 @@ import logging
 
 from contextlib import asynccontextmanager
 
+from jorge_agent import __version__
+
+from jorge_agent.schemas.agent import (
+    AgentStatusResponse,
+)
+
+from jorge_agent.services.agent_status_service import (
+    get_agent_status,
+)
+
 from fastapi import (
     FastAPI,
     HTTPException,
@@ -144,7 +154,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Jorge Agent",
     description="Compute Node Agent for MC-IaaS",
-    version="0.1.0",
+    version=__version__,
     lifespan=lifespan,
     docs_url=None,
     redoc_url=None,
@@ -536,5 +546,12 @@ def node_health() -> NodeHealthResponse:
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=f"Could not evaluate node health: {exc}",
         ) from exc
+
+@protected_api.get(
+    "/agent/status",
+    response_model=AgentStatusResponse,
+)
+def agent_status() -> AgentStatusResponse:
+    return get_agent_status()
 
 app.include_router(protected_api)
