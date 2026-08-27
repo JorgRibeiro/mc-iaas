@@ -107,6 +107,14 @@ from jorge_agent.logging_config import (
     configure_logging,
 )
 
+from jorge_agent.schemas.snapshot import (
+    NodeSnapshotResponse,
+)
+
+from jorge_agent.services.node_snapshot_service import (
+    get_node_snapshot,
+)
+
 configure_logging()
 
 logger = logging.getLogger(
@@ -592,6 +600,14 @@ def reconcile_node() -> RecoveryResponse:
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=f"Node reconciliation failed: {exc}",
         ) from exc
+
+
+@protected_api.get(
+    "/node/snapshot",
+    response_model=NodeSnapshotResponse,
+)
+def node_snapshot() -> NodeSnapshotResponse:
+    return get_node_snapshot()
 
     
 app.include_router(protected_api)
