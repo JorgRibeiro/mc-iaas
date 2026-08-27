@@ -91,6 +91,14 @@ from jorge_agent.services.recovery_service import (
     reconcile_instance_runtimes,
 )
 
+from jorge_agent.schemas.host import (
+    HostMetricsResponse,
+)
+
+from jorge_agent.services.host_metrics_service import (
+    get_host_metrics,
+)
+
 logger = logging.getLogger(
     "jorge_agent"
 )
@@ -553,5 +561,19 @@ def node_health() -> NodeHealthResponse:
 )
 def agent_status() -> AgentStatusResponse:
     return get_agent_status()
+
+@protected_api.get(
+    "/node/metrics",
+    response_model=HostMetricsResponse,
+)
+def node_metrics() -> HostMetricsResponse:
+    try:
+        return get_host_metrics()
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Could not collect node metrics: {exc}",
+        ) from exc
 
 app.include_router(protected_api)
