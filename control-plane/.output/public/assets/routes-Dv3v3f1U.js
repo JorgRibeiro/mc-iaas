@@ -1,0 +1,1 @@
+import{t as e}from"./index-TKfvBf40.js";var t=e();function n(){return(0,t.jsx)(`div`,{className:`flex min-h-screen items-center justify-center`,style:{backgroundColor:`#fcfbf8`},children:(0,t.jsx)(`img`,{"data-lovable-blank-page-placeholder":`REMOVE_THIS`,src:`https://cdn.gpteng.co/blank-app-v1.svg`,alt:`Your app will live here!`})})}export{n as component};
