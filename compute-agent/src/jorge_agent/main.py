@@ -99,6 +99,10 @@ from jorge_agent.services.host_metrics_service import (
     get_host_metrics,
 )
 
+from jorge_agent.schemas.recovery import (
+    RecoveryResponse,
+)
+
 logger = logging.getLogger(
     "jorge_agent"
 )
@@ -576,4 +580,26 @@ def node_metrics() -> HostMetricsResponse:
             detail=f"Could not collect node metrics: {exc}",
         ) from exc
 
+@protected_api.post(
+    "/node/reconcile",
+    response_model=RecoveryResponse,
+)
+def reconcile_node() -> RecoveryResponse:
+    try:
+        report = reconcile_instance_runtimes()
+
+        return RecoveryResponse(
+            recovered=report.recovered,
+            unchanged=report.unchanged,
+            errors=report.errors,
+            healthy=not report.errors,
+        )
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Node reconciliation failed: {exc}",
+        ) from exc
+
+    
 app.include_router(protected_api)

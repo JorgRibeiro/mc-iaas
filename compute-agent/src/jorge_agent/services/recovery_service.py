@@ -10,6 +10,10 @@ from jorge_agent.services.runtime_service import (
     release_instance_runtime,
 )
 
+from jorge_agent.services.lock_service import (
+    instance_lock,
+    runtime_lock,
+)
 
 @dataclass
 class RecoveryReport:
@@ -72,27 +76,53 @@ def reconcile_instance_runtimes() -> RecoveryReport:
                 if domain is None:
                     continue
 
-                runtime = get_instance_runtime(
-                    name
-                )
+                # Recovery pode ser executado enquanto
+                # a API está recebendo operações.
+                #
+                # A ordem oficial dos locks é:
+                #
+                # instance -> runtime
+                #
+                # Isso impede que a reconciliação
+                # concorra com START, STOP ou DELETE
+                # da mesma instância.
+                with instance_lock(name):
+                    with runtime_lock():
 
-                if domain.isActive():
-                    report.unchanged.append(
-                        name
-                    )
+                        # O estado precisa ser
+                        # confirmado novamente dentro
+                        # do lock. A observação feita
+                        # antes dele pode ter ficado
+                        # desatualizada.
+                        if domain.isActive():
+                            report.unchanged.append(
+                                name
+                            )
 
-                    continue
+                            continue
 
-                if runtime is None:
-                    report.unchanged.append(
-                        name
-                    )
+                        runtime = get_instance_runtime(
+                            name
+                        )
 
-                    continue
+                        if runtime is None:
+                            report.unchanged.append(
+                                name
+                            )
 
-                release_instance_runtime(
-                    name
-                )
+                            continue
+
+                        # Nesse ponto temos:
+                        #
+                        # domínio parado
+                        # +
+                        # runtime residual
+                        #
+                        # Portanto é seguro liberar
+                        # NIC, DHCP, lease e forward.
+                        release_instance_runtime(
+                            name
+                        )
 
                 report.recovered.append(
                     name
