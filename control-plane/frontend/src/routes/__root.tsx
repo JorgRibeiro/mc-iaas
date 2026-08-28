@@ -98,13 +98,18 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         },
         { property: "og:type", content: "website" },
         { name: "twitter:card", content: "summary" },
+        { name: "theme-color", content: "#111b25" },
       ],
       links: [
         {
           rel: "stylesheet",
           href: appCss,
         },
-        { rel: "icon", href: "/favicon.ico", type: "image/x-icon" },
+        {
+          rel: "icon",
+          href: "/mc-iaas-mark.svg",
+          type: "image/svg+xml",
+        },
       ],
     }),
     shellComponent: RootShell,

@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
+import { BrandMark } from "@/components/BrandMark";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -66,9 +67,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
     <div className="flex h-full flex-col gap-6 py-5">
       <div className="px-4">
         <Link to="/" className="flex items-center gap-2.5" onClick={onNavigate}>
-          <span className="flex h-8 w-8 items-center justify-center rounded-md border border-primary/40 bg-primary/10 text-primary">
-            <Boxes className="h-4 w-4" aria-hidden />
-          </span>
+          <BrandMark className="h-9 w-9 drop-shadow-[0_0_12px_color-mix(in_oklch,var(--color-primary)_20%,transparent)]" />
           <span className="leading-tight">
             <span className="block text-sm font-semibold tracking-tight">
               MC-IaaS
@@ -168,8 +167,8 @@ export function AppShell({ children }: { children: ReactNode }) {
             </SheetContent>
           </Sheet>
 
-          <span className="text-sm font-semibold tracking-tight lg:hidden">
-            MC-IaaS
+          <span className="flex items-center gap-2 text-sm font-semibold tracking-tight lg:hidden">
+            <BrandMark className="h-6 w-6" /> MC-IaaS
           </span>
 
           <div className="ml-auto flex items-center gap-2">
