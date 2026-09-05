@@ -3,17 +3,33 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
+import httpx
 from fastapi import FastAPI
 
 from app.api.router import api_router
+from app.clients.compute_agent import ComputeAgentClient
+from app.core.config import get_settings
 from app.db.session import engine
+from app.secrets.environment import EnvironmentSecretProvider
 
 
 @asynccontextmanager
-async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-    """Manage application-wide resources."""
-    yield
-    await engine.dispose()
+async def lifespan(application: FastAPI) -> AsyncIterator[None]:
+    """Own the shared Agent HTTP pool and database engine lifecycle."""
+    settings = get_settings()
+    try:
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(
+                settings.agent_read_timeout, connect=settings.agent_connect_timeout
+            ),
+            trust_env=False,
+            follow_redirects=False,
+        ) as http_client:
+            application.state.agent_client = ComputeAgentClient(http_client)
+            application.state.secret_provider = EnvironmentSecretProvider()
+            yield
+    finally:
+        await engine.dispose()
 
 
 app = FastAPI(

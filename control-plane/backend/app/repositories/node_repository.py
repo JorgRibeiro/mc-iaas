@@ -22,8 +22,11 @@ class NodeRepository:
         await self.session.flush()
         return node
 
-    async def get_by_id(self, node_id: UUID) -> ComputeNode | None:
-        return await self.session.scalar(select(ComputeNode).where(ComputeNode.id == node_id))
+    async def get_by_id(self, node_id: UUID, *, for_update: bool = False) -> ComputeNode | None:
+        statement = select(ComputeNode).where(ComputeNode.id == node_id)
+        if for_update:
+            statement = statement.with_for_update()
+        return await self.session.scalar(statement)
 
     async def get_by_name(self, name: str) -> ComputeNode | None:
         return await self.session.scalar(select(ComputeNode).where(ComputeNode.name == name))
