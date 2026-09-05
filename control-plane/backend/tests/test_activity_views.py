@@ -153,3 +153,46 @@ async def test_activity_apis(summary, monkeypatch):
             assert client.get("/api/v1/events?node_id=invalid").status_code == 422
     finally:
         app.dependency_overrides.pop(get_session, None)
+
+
+async def test_live_overview_and_monitoring_aggregate_online_metrics(summary):
+    service, nodes = summary
+    for i, node in enumerate(nodes):
+        node.metrics_observed_at = datetime.now(UTC)
+        node.cpu_usage_percent = 10 + 20 * i
+        node.memory_used_bytes = 2_000_000_000 * (i + 1)
+        node.memory_total_bytes = 8_000_000_000 * (i + 1)
+        node.storage_used_bytes = 20_000_000_000 * (i + 1)
+        node.storage_total_bytes = 80_000_000_000 * (i + 1)
+        node.libvirt_health = True
+    data = await service.summary()
+    assert data["overview"]["cpu_usage_percent"] == 10
+    assert data["overview"]["memory_used_bytes"] == 2_000_000_000
+    assert data["overview"]["storage_used_bytes"] == 20_000_000_000
+    nodes[1].reachability = "online"
+    data = await service.summary()
+    assert data["overview"]["cpu_usage_percent"] == 20
+    assert data["overview"]["memory_used_bytes"] == 6_000_000_000
+    assert data["overview"]["memory_total_bytes"] == 24_000_000_000
+    assert data["overview"]["storage_used_bytes"] == 60_000_000_000
+    assert data["overview"]["storage_total_bytes"] == 240_000_000_000
+    assert data["nodes"][0].metrics.cpu.usage_percent == 10
+    assert data["nodes"][0].health.libvirt is True
+    assert data["timeseries"] == []
+    assert data["historical_metrics_available"] is False
+
+
+async def test_live_aggregation_null_and_stale(summary):
+    from datetime import timedelta
+
+    service, nodes = summary
+    data = await service.summary()
+    assert data["overview"]["cpu_usage_percent"] is None
+    assert data["overview"]["memory_used_bytes"] is None
+    assert data["overview"]["storage_total_bytes"] is None
+    nodes[0].cpu_usage_percent = 50
+    nodes[0].metrics_observed_at = datetime.now(UTC) - timedelta(days=1)
+    assert (await service.summary())["overview"]["cpu_usage_percent"] is None
+    nodes[0].metrics_observed_at = datetime.now(UTC)
+    nodes[0].memory_used_bytes = 100
+    assert (await service.summary())["overview"]["memory_used_bytes"] is None

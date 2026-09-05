@@ -15,6 +15,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { StatCard } from "@/components/StatCard";
 import { CardsSkeleton, EmptyState, ErrorState } from "@/components/StateViews";
 import {
+  HealthBadge,
   InstanceStateBadge,
   NodeStatusBadge,
   SeverityBadge,
@@ -34,6 +35,7 @@ import {
   formatPercent,
   formatTimestamp,
   percentOf,
+  relativeTime,
 } from "@/lib/format";
 import { instancesQuery, monitoringQuery } from "@/services/queries";
 import type { InstanceState } from "@/types";
@@ -199,6 +201,24 @@ function MonitoringPage() {
                     </Link>
                     <NodeStatusBadge status={node.status} />
                   </div>
+                  <div className="mb-3 flex flex-wrap gap-2">
+                    {(
+                      ["libvirt", "network", "storage", "invariants"] as const
+                    ).map((component) => (
+                      <span
+                        key={component}
+                        className="flex items-center gap-1 text-xs"
+                      >
+                        {component}{" "}
+                        <HealthBadge state={node.health[component]} />
+                      </span>
+                    ))}
+                  </div>
+                  {node.metricsObservedAt && (
+                    <p className="mb-3 text-xs text-muted-foreground">
+                      Metrics observed {relativeTime(node.metricsObservedAt)}
+                    </p>
+                  )}
                   <div className="grid gap-3 sm:grid-cols-3">
                     <MetricBar
                       label="CPU"

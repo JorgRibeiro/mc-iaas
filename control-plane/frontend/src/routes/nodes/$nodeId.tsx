@@ -1,3 +1,4 @@
+import { percentOf } from "@/lib/format";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import {
@@ -93,9 +94,10 @@ function NodeDetailPage() {
     events.data?.filter(
       (event) => event.nodeId === nodeId || targets.has(event.target),
     ) ?? [];
-  const memoryPct = node.data.metrics
-    ? (node.data.metrics.memory.usedMb / node.data.metrics.memory.totalMb) * 100
-    : null;
+  const memoryPct = percentOf(
+    node.data.metrics?.memory.usedMb,
+    node.data.metrics?.memory.totalMb,
+  );
 
   return (
     <>
@@ -247,14 +249,18 @@ function NodeDetailPage() {
           {!node.data.metrics ? (
             <EmptyState
               title="Metrics unavailable"
-              description="Host telemetry is not provided by this MVP."
+              description="No host telemetry has been observed yet."
             />
           ) : (
             <>
               <div className="grid gap-4 xl:grid-cols-3">
                 <Panel
                   title="CPU"
-                  description={`${node.data.metrics?.cpu.cores} logical cores`}
+                  description={
+                    node.data.metrics?.cpu.cores == null
+                      ? "Latest observed usage"
+                      : `${node.data.metrics.cpu.cores} logical cores`
+                  }
                 >
                   <MetricBar
                     label="Usage"
@@ -344,14 +350,21 @@ function NodeDetailPage() {
         </TabsContent>
 
         <TabsContent value="invariants">
+          {node.data.invariantsDetails && (
+            <p className="panel p-4 text-sm">{node.data.invariantsDetails}</p>
+          )}
           {node.data.invariants.length === 0 ? (
             <EmptyState
               title={
-                node.data.invariantsAvailable === false
-                  ? "Invariants unavailable"
-                  : "No invariant violations"
+                node.data.health.invariants === "ok"
+                  ? "Invariants healthy"
+                  : node.data.health.invariants === "error"
+                    ? "Invariant issues observed"
+                    : node.data.invariantsAvailable === false
+                      ? "Invariants unavailable"
+                      : "No invariant violations"
               }
-              description="No detailed invariant data is available for this view."
+              description="Latest component observation. A structured issue list is not provided by the snapshot."
               icon={ShieldCheck}
             />
           ) : (

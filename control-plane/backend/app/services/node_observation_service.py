@@ -67,19 +67,58 @@ class NodeObservationService:
                 node.last_seen_at = now
                 node.consecutive_failures = 0
                 node.agent_version = snapshot.agent.version
-                if snapshot.node_health is not None:
-                    health = snapshot.node_health
-                    node.observed_health = NodeHealth(health.status)
-                    node.observed_ready = health.ready
-                    for field, value in health.capacity.model_dump().items():
-                        setattr(node, field, value)
-                    # Local receipt time avoids depending on clock alignment with the Agent.
-                    node.last_observed_at = now
+                if snapshot.agent.uptime_seconds is not None:
+                    node.agent_uptime_seconds = snapshot.agent.uptime_seconds
+                health = snapshot.node_health
+                complete_health = False
+                if health is not None:
+                    if health.status is not None:
+                        node.observed_health = NodeHealth(health.status)
+                    if health.ready is not None:
+                        node.observed_ready = health.ready
+                    if health.capacity is not None:
+                        for field, value in health.capacity.model_dump(exclude_none=True).items():
+                            setattr(node, field, value)
+                    complete_health = (
+                        health.status is not None
+                        and health.ready is not None
+                        and health.capacity is not None
+                        and all(
+                            value is not None for value in health.capacity.model_dump().values()
+                        )
+                    )
+                    if complete_health:
+                        # Only authoritative health/capacity refreshes Scheduler freshness.
+                        node.last_observed_at = now
+                    for component in ("libvirt", "network", "storage", "invariants"):
+                        observation = getattr(health, component)
+                        if observation is not None and observation.healthy is not None:
+                            setattr(node, f"{component}_health", observation.healthy)
+                            if component == "invariants":
+                                if observation.healthy:
+                                    node.invariants_details = None
+                                elif observation.detail is not None:
+                                    node.invariants_details = observation.detail
+                metrics = snapshot.node_metrics
+                if metrics is not None:
+                    updated = False
+                    for source, prefix in (
+                        ("cpu", "cpu"),
+                        ("memory", "memory"),
+                        ("mc_iaas_disk", "storage"),
+                    ):
+                        observation = getattr(metrics, source)
+                        if observation is None:
+                            continue
+                        for field, value in observation.model_dump(exclude_none=True).items():
+                            field = "available_bytes" if field == "free_bytes" else field
+                            setattr(node, f"{prefix}_{field}", value)
+                            updated = True
+                    if updated:
+                        node.metrics_observed_at = now
                 await self._sync_instances(node_id, snapshot, now)
                 node.last_error = (
-                    "Partial Agent snapshot"
-                    if snapshot.errors or snapshot.node_health is None
-                    else None
+                    "Partial Agent snapshot" if snapshot.errors or not complete_health else None
                 )
             if node.reachability != previous_reachability:
                 EventService(self.session).emit(f"node.{node.reachability.value}", node_id=node_id)

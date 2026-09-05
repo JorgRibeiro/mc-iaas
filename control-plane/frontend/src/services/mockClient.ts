@@ -114,23 +114,23 @@ export const mockControlPlaneClient: ControlPlaneClient = {
       0,
     );
     const memoryTotalMb = online.reduce(
-      (acc, n) => acc + n.metrics!.memory.totalMb,
+      (acc, n) => acc + n.metrics!.memory.totalMb!,
       0,
     );
     const memoryUsedMb = online.reduce(
-      (acc, n) => acc + n.metrics!.memory.usedMb,
+      (acc, n) => acc + n.metrics!.memory.usedMb!,
       0,
     );
     const storageTotalGb = state.nodes.reduce(
-      (acc, n) => acc + n.metrics!.mcIaasDisk.totalGb,
+      (acc, n) => acc + n.metrics!.mcIaasDisk.totalGb!,
       0,
     );
     const storageUsedGb = state.nodes.reduce(
-      (acc, n) => acc + n.metrics!.mcIaasDisk.usedGb,
+      (acc, n) => acc + n.metrics!.mcIaasDisk.usedGb!,
       0,
     );
     const cpu = online.length
-      ? online.reduce((acc, n) => acc + n.metrics!.cpu.usagePercent, 0) /
+      ? online.reduce((acc, n) => acc + n.metrics!.cpu.usagePercent!, 0) /
         online.length
       : 0;
     const alerts = state.nodes.reduce((acc, n) => acc + n.invariants.length, 0);

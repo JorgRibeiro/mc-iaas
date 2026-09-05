@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel
 
@@ -16,6 +17,10 @@ from jorge_agent.schemas.node import (
 )
 
 
+class SnapshotInstanceResponse(InstanceSummaryResponse):
+    minecraft_status: Literal["online", "offline", "unavailable", "unknown"] = "unknown"
+
+
 class NodeSnapshotResponse(BaseModel):
     generated_at: datetime
 
@@ -24,6 +29,6 @@ class NodeSnapshotResponse(BaseModel):
     node_health: NodeHealthResponse | None = None
     node_metrics: HostMetricsResponse | None = None
 
-    instances: list[InstanceSummaryResponse] | None = None
+    instances: list[SnapshotInstanceResponse] | None = None
 
     errors: dict[str, str]

@@ -4,7 +4,18 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, Index, Integer, String, Text, true
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    Float,
+    Index,
+    Integer,
+    String,
+    Text,
+    true,
+)
 from sqlalchemy.dialects.postgresql import UUID as PostgresUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -66,6 +77,22 @@ class ComputeNode(TimestampMixin, Base):
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_observed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     agent_version: Mapped[str | None] = mapped_column(String(100))
+    agent_uptime_seconds: Mapped[float | None] = mapped_column(Float)
+    cpu_usage_percent: Mapped[float | None] = mapped_column(Float)
+    memory_total_bytes: Mapped[int | None] = mapped_column(BigInteger)
+    memory_used_bytes: Mapped[int | None] = mapped_column(BigInteger)
+    memory_available_bytes: Mapped[int | None] = mapped_column(BigInteger)
+    storage_total_bytes: Mapped[int | None] = mapped_column(BigInteger)
+    storage_used_bytes: Mapped[int | None] = mapped_column(BigInteger)
+    storage_available_bytes: Mapped[int | None] = mapped_column(BigInteger)
+    memory_usage_percent: Mapped[float | None] = mapped_column(Float)
+    storage_usage_percent: Mapped[float | None] = mapped_column(Float)
+    libvirt_health: Mapped[bool | None] = mapped_column(Boolean)
+    network_health: Mapped[bool | None] = mapped_column(Boolean)
+    storage_health: Mapped[bool | None] = mapped_column(Boolean)
+    invariants_health: Mapped[bool | None] = mapped_column(Boolean)
+    invariants_details: Mapped[str | None] = mapped_column(Text)
+    metrics_observed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     max_active_instances: Mapped[int | None] = mapped_column(Integer)
     active_instances: Mapped[int | None] = mapped_column(Integer)
     occupied_runtime_slots: Mapped[int | None] = mapped_column(Integer)

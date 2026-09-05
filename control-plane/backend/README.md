@@ -496,3 +496,35 @@ Histórico de CPU/memória, métricas/componentes não persistidos, Settings API
 HA, failover/migração, adoção de órfãos e resolução comprovada de RESTART ficam fora do MVP. Nenhuma
 migration foi necessária; testes unitários continuam sem JORGE e a integração usa PostgreSQL isolado
 com HTTP simulado.
+
+### Live observability (9.2.7.1)
+
+A migration `a17b92c6e401` adiciona somente valores da última observação do Node,
+sem tabela de samples. Execute `.venv/bin/alembic upgrade head` antes de iniciar
+o backend atualizado. O poller e o refresh manual persistem uptime (segundos,
+com fração), CPU, memória, storage MC-IaaS e health dos componentes.
+
+O contrato do Agent usa `node_metrics.mc_iaas_disk`, não `disks.mc_iaas`.
+`free_bytes` desse filesystem é exposto como `metrics.storage.available_bytes`;
+o root disk não entra na agregação de storage. `node_health.*.healthy` é
+persistido como booleano nullable. O detalhe atual de invariants é texto,
+conforme o contrato real; não é uma lista estruturada de violações.
+
+Nodes offline preservam valores e `metrics_observed_at`. Snapshots sem métricas
+ou com campos de métricas null não apagam observações anteriores. Health parcial
+atualiza somente campos presentes; apenas health/capacity completos renovam
+`last_observed_at`, preservando a exigência de observação válida do Scheduler.
+
+Overview e Monitoring calculam média simples das CPUs disponíveis e somam pares
+válidos used/total de memória e storage dos nodes online com observação recente
+(`NODE_OBSERVATION_MAX_AGE`). Se não há dados elegíveis, a métrica é null.
+`historical_metrics_available=false` e `timeseries=[]` permanecem inalterados.
+
+O Agent atualizado inclui `minecraft_status` no inventário de `/node/snapshot`,
+reutilizando a sondagem TCP existente (timeout de 1 segundo por VM running com
+IP observado). Isso indica acessibilidade da porta Minecraft, não validação do
+protocolo ou disponibilidade de RCON. VM stopped informa offline; porta acessível,
+online; conexão recusada/timeout, unavailable; estado/IP não observável, unknown.
+Falha individual da sondagem não invalida o inventário. Agents antigos que omitem
+o campo continuam compatíveis e não apagam o status previamente persistido.
+A atualização do processo remoto do Agent não faz parte desta implementação.

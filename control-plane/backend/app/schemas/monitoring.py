@@ -14,6 +14,11 @@ class CapacitySummary(BaseModel):
 
 
 class OverviewResponse(CapacitySummary):
+    cpu_usage_percent: float | None = None
+    memory_used_bytes: int | None = None
+    memory_total_bytes: int | None = None
+    storage_used_bytes: int | None = None
+    storage_total_bytes: int | None = None
     infrastructure_status: str
     total_nodes: int
     online_nodes: int

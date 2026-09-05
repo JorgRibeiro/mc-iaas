@@ -35,7 +35,8 @@ O backend permite CORS explicitamente para `http://localhost:8080` e `http://127
 - CREATE, START, STOP, RESTART e DELETE aguardam a Operation. As queries são invalidadas na aceitação e ao terminar o acompanhamento. O polling consulta a cada segundo, limitado a 120 tentativas e aproximadamente 2 minutos, com timeout de 10 segundos por requisição.
 - `succeeded` confirma a ação; `failed` mostra o erro; `uncertain`, perda de acompanhamento ou prazo excedido mostram aviso sem repetir a mutação automaticamente. O backend pode continuar trabalhando após o fim do acompanhamento.
 - CREATE envia apenas nome, memória, vCPU, versão Minecraft, usuário da VM e aceite explícito da EULA. O Scheduler escolhe o node; não há manipulação de passwords.
-- Campos não fornecidos pelo backend aparecem como indisponíveis. Não há métricas históricas, console remoto, health detalhado por componente ou métricas de CPU/RAM/disco no contrato atual.
+- Campos não fornecidos pelo backend aparecem como indisponíveis. CPU, memória, disco MC-IaaS, uptime e health por componente usam a última observação persistida. Memória converte bytes para MiB/GiB (base 1024); storage usa GB (base 1000). Root disk, load averages e métricas por Instance continuam indisponíveis nesta projeção. Não há histórico nem console remoto.
+- Overview agrega apenas nodes online com observações recentes: média simples de CPU e soma de pares used/total de memória e storage. Sem observações válidas, retorna null. Nodes offline preservam as últimas métricas e exibem o status offline e a idade da observação.
 - Activity consulta os últimos 100 eventos, com filtro de nível na API. Não há paginação nesta interface.
 - Settings mantém preferências apenas em memória, sem persistência e sem reconfigurar o backend ou os intervalos das queries. O card de conexão consulta `/health` e `/ready`.
 

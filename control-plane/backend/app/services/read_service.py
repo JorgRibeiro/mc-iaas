@@ -135,7 +135,32 @@ class ReadService:
             "occupied_runtime_slots": total("occupied_runtime_slots"),
             "available_runtime_slots": total("available_slots"),
         }
+        now = datetime.now(UTC)
+        metric_nodes = [
+            node
+            for node in nodes
+            if not unavailable(node)
+            and node.metrics_observed_at is not None
+            and (now - node.metrics_observed_at).total_seconds()
+            <= get_settings().node_observation_max_age
+        ]
+        cpu = [
+            node.cpu_usage_percent for node in metric_nodes if node.cpu_usage_percent is not None
+        ]
+        metrics = {"cpu_usage_percent": sum(cpu) / len(cpu) if cpu else None}
+        for resource in ("memory", "storage"):
+            # Sum matched used/total pairs, never a partial denominator.
+            pairs = [
+                (getattr(node, f"{resource}_used_bytes"), getattr(node, f"{resource}_total_bytes"))
+                for node in metric_nodes
+            ]
+            pairs = [
+                (used, total) for used, total in pairs if used is not None and total is not None
+            ]
+            metrics[f"{resource}_used_bytes"] = sum(p[0] for p in pairs) if pairs else None
+            metrics[f"{resource}_total_bytes"] = sum(p[1] for p in pairs) if pairs else None
         overview = {
+            **metrics,
             "infrastructure_status": status,
             "total_nodes": len(nodes),
             "online_nodes": online,

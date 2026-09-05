@@ -78,7 +78,7 @@ export class HttpControlPlaneClient implements ControlPlaneClient {
     onAccepted: () => void = () => {},
   ) {
     this.baseUrl = baseUrl.replace(/\/+$/, "");
-    this.fetcher = fetcher.bind(globalThis);;
+    this.fetcher = fetcher.bind(globalThis);
     this.onAccepted = onAccepted;
   }
   private async request<T>(
@@ -96,11 +96,11 @@ export class HttpControlPlaneClient implements ControlPlaneClient {
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       });
     } catch (error) {
-  console.error("[ControlPlane fetch failed]", {
-    method,
-    url: this.baseUrl + path,
-    error,
-  });
+      console.error("[ControlPlane fetch failed]", {
+        method,
+        url: this.baseUrl + path,
+        error,
+      });
       throw new ApiError(
         method === "GET"
           ? "Cannot reach the Control Plane. Check the API URL and connection."

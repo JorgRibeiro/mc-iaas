@@ -13,10 +13,8 @@ export function subscribeAccepted(listener: () => void) {
   };
 }
 export const controlPlane: ControlPlaneClient = isHttpMode
-  ? new HttpControlPlaneClient(
-      apiUrl,
-      globalThis.fetch.bind(globalThis),
-      () => acceptedListeners.forEach((listener) => listener()),
+  ? new HttpControlPlaneClient(apiUrl, globalThis.fetch.bind(globalThis), () =>
+      acceptedListeners.forEach((listener) => listener()),
     )
   : mockControlPlaneClient;
 export type { ControlPlaneClient };

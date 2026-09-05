@@ -121,3 +121,30 @@ def test_empty_list_and_no_delete_or_unversioned_nodes(api):
     assert client.delete(f"/api/v1/nodes/{uuid4()}").status_code == 405
     assert client.get("/nodes").status_code == 404
     assert client.get("/api/v1/health").status_code == 404
+
+
+def test_node_api_exposes_live_observation(api, node):
+    client, service = api
+    node.agent_uptime_seconds = 100.25
+    node.cpu_usage_percent = 7.8
+    node.memory_total_bytes = 16_000_000_000
+    node.storage_used_bytes = 18_000_000_000
+    node.libvirt_health = True
+    node.network_health = False
+    node.invariants_details = "network_unavailable: test"
+    service.get_node.return_value = node
+    response = client.get(f"/api/v1/nodes/{node.id}")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["agent_uptime_seconds"] == 100.25
+    assert data["metrics"]["cpu"]["usage_percent"] == 7.8
+    assert data["metrics"]["memory"]["total_bytes"] == 16_000_000_000
+    assert data["metrics"]["storage"]["used_bytes"] == 18_000_000_000
+    assert data["metrics"]["storage"]["total_bytes"] is None
+    assert data["health"] == {
+        "libvirt": True,
+        "network": False,
+        "storage": None,
+        "invariants": None,
+    }
+    assert "private-ref" not in response.text

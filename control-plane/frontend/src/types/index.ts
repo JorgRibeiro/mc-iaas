@@ -39,23 +39,23 @@ export interface NodeHealth {
 }
 
 export interface CpuMetric {
-  usagePercent: number;
-  cores: number;
-  load1m: number;
-  load5m: number;
-  load15m: number;
+  usagePercent: number | null;
+  cores: number | null;
+  load1m: number | null;
+  load5m: number | null;
+  load15m: number | null;
 }
 
 export interface MemoryMetric {
-  totalMb: number;
-  usedMb: number;
-  availableMb: number;
+  totalMb: number | null;
+  usedMb: number | null;
+  availableMb: number | null;
 }
 
 export interface DiskMetric {
   label: string;
-  totalGb: number;
-  usedGb: number;
+  totalGb: number | null;
+  usedGb: number | null;
 }
 
 export interface NodeMetrics {
@@ -86,6 +86,8 @@ export interface ComputeNode {
   lastError?: string | null;
   lastObservedAt?: string | null;
   invariantsAvailable?: boolean;
+  invariantsDetails?: string | null;
+  metricsObservedAt?: string | null;
   capacity: CapacityInfo;
   health: NodeHealth;
   metrics: NodeMetrics | null;

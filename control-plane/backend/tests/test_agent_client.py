@@ -132,7 +132,7 @@ async def test_partial_snapshot_accepts_null_or_missing(snapshot_payload, sectio
         assert snapshot.node_health is None
 
 
-@pytest.mark.parametrize("value", [-1, None, True, "4"])
+@pytest.mark.parametrize("value", [-1, True, "4"])
 async def test_invalid_capacity_is_protocol_failure(snapshot_payload, value):
     snapshot_payload["node_health"]["capacity"]["available_slots"] = value
     async with httpx.AsyncClient(
@@ -154,3 +154,14 @@ async def test_duplicate_inventory_is_partial_not_authoritative(snapshot_payload
     assert snapshot.instances is None
     assert "instances" in snapshot.errors
     assert snapshot.node_health.status == "healthy"
+
+
+async def test_null_capacity_is_partial(snapshot_payload):
+    snapshot_payload["node_health"]["capacity"]["available_slots"] = None
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda request: httpx.Response(200, json=snapshot_payload))
+    ) as http_client:
+        snapshot = await ComputeAgentClient(http_client).get_snapshot(
+            "https://agent.example", "token"
+        )
+    assert snapshot.node_health.capacity.available_slots is None

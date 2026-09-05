@@ -5,6 +5,7 @@ from datetime import (
 
 from jorge_agent.schemas.snapshot import (
     NodeSnapshotResponse,
+    SnapshotInstanceResponse,
 )
 
 from jorge_agent.services.agent_status_service import (
@@ -22,6 +23,9 @@ from jorge_agent.services.libvirt_service import (
 from jorge_agent.services.node_health_service import (
     get_node_health,
 )
+
+
+from jorge_agent.services.health_service import observe_minecraft_status
 
 
 def get_node_snapshot() -> NodeSnapshotResponse:
@@ -50,7 +54,16 @@ def get_node_snapshot() -> NodeSnapshotResponse:
         )
 
     try:
-        instances = list_instances()
+        instances = []
+        for instance in list_instances():
+            try:
+                minecraft_status = observe_minecraft_status(instance.state, instance.runtime)
+            except Exception:
+                # A health probe must not discard an otherwise authoritative inventory.
+                minecraft_status = "unknown"
+            instances.append(SnapshotInstanceResponse(
+                **instance.model_dump(), minecraft_status=minecraft_status
+            ))
 
     except Exception as exc:
         errors["instances"] = (

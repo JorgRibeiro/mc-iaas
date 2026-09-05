@@ -11,21 +11,59 @@ class AgentContract(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
 
+Percent = Annotated[float, Field(ge=0, le=100, allow_inf_nan=False)]
+Bytes = Annotated[int, Field(strict=True, ge=0)]
+
+
 class AgentInfo(AgentContract):
     version: Annotated[str, Field(min_length=1, max_length=100)]
+    uptime_seconds: Annotated[float, Field(ge=0, allow_inf_nan=False)] | None = None
 
 
 class AgentCapacity(AgentContract):
-    max_active_instances: Annotated[int, Field(strict=True, ge=0)]
-    active_instances: Annotated[int, Field(strict=True, ge=0)]
-    occupied_runtime_slots: Annotated[int, Field(strict=True, ge=0)]
-    available_slots: Annotated[int, Field(strict=True, ge=0)]
+    max_active_instances: Annotated[int, Field(strict=True, ge=0)] | None = None
+    active_instances: Annotated[int, Field(strict=True, ge=0)] | None = None
+    occupied_runtime_slots: Annotated[int, Field(strict=True, ge=0)] | None = None
+    available_slots: Annotated[int, Field(strict=True, ge=0)] | None = None
+
+
+class AgentComponentHealth(AgentContract):
+    healthy: Annotated[bool, Field(strict=True)] | None = None
+    detail: Annotated[str, Field(max_length=16384)] | None = None
 
 
 class AgentNodeHealth(AgentContract):
-    status: Literal["healthy", "degraded", "unhealthy"]
-    ready: Annotated[bool, Field(strict=True)]
-    capacity: AgentCapacity
+    status: Literal["healthy", "degraded", "unhealthy"] | None = None
+    ready: Annotated[bool, Field(strict=True)] | None = None
+    capacity: AgentCapacity | None = None
+    libvirt: AgentComponentHealth | None = None
+    network: AgentComponentHealth | None = None
+    storage: AgentComponentHealth | None = None
+    invariants: AgentComponentHealth | None = None
+
+
+class AgentCpu(AgentContract):
+    usage_percent: Percent | None = None
+
+
+class AgentMemory(AgentContract):
+    total_bytes: Bytes | None = None
+    used_bytes: Bytes | None = None
+    available_bytes: Bytes | None = None
+    usage_percent: Percent | None = None
+
+
+class AgentDisk(AgentContract):
+    total_bytes: Bytes | None = None
+    used_bytes: Bytes | None = None
+    free_bytes: Bytes | None = None
+    usage_percent: Percent | None = None
+
+
+class AgentMetrics(AgentContract):
+    cpu: AgentCpu | None = None
+    memory: AgentMemory | None = None
+    mc_iaas_disk: AgentDisk | None = None
 
 
 class AgentRuntime(AgentContract):
@@ -38,7 +76,7 @@ class AgentInstance(AgentContract):
     name: Annotated[str, Field(min_length=1, max_length=255)]
     state: str
     runtime: AgentRuntime | None = None
-    # Not currently sent by InstanceSummaryResponse; preserve it when absent.
+    # Older Agents omit this field; preserve the last observation in that case.
     minecraft_status: MinecraftStatus | None = None
 
 
@@ -46,6 +84,7 @@ class AgentSnapshot(AgentContract):
     generated_at: AwareDatetime
     agent: AgentInfo
     node_health: AgentNodeHealth | None = None
+    node_metrics: AgentMetrics | None = None
     errors: dict[str, str] = Field(default_factory=dict)
 
     instances: list[AgentInstance] | None = None

@@ -111,3 +111,14 @@ def get_instance_health(
 
     finally:
         conn.close()
+
+
+def observe_minecraft_status(instance_state, runtime) -> str:
+    """Use the existing bounded TCP probe on an already observed VM/runtime."""
+    if instance_state == "stopped":
+        return "offline"
+    if instance_state != "running":
+        return "unknown"
+    if runtime is None or not runtime.ip:
+        return "unknown"
+    return "online" if _minecraft_port_open(runtime.ip) else "unavailable"

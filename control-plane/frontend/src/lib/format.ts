@@ -12,7 +12,7 @@ export function formatUptime(seconds: number | null | undefined): string {
 export function formatMb(mb: number | null | undefined): string {
   if (mb == null || !Number.isFinite(mb)) return "—";
   if (mb >= 1024) return `${(mb / 1024).toFixed(mb % 1024 === 0 ? 0 : 1)} GiB`;
-  return `${mb} MiB`;
+  return `${Number(mb.toFixed(1))} MiB`;
 }
 
 export function formatGb(gb: number | null | undefined): string {

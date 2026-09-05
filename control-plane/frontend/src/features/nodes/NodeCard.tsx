@@ -3,7 +3,13 @@ import { ArrowUpRight, Clock } from "lucide-react";
 
 import { MetricBar } from "@/components/MetricBar";
 import { NodeStatusBadge, ReadyBadge } from "@/components/StatusBadge";
-import { formatGb, formatMb, formatPercent, formatUptime } from "@/lib/format";
+import {
+  formatGb,
+  formatMb,
+  formatPercent,
+  formatUptime,
+  relativeTime,
+} from "@/lib/format";
 import type { ComputeNode } from "@/types";
 
 export function NodeCard({ node }: { node: ComputeNode }) {
@@ -36,6 +42,14 @@ export function NodeCard({ node }: { node: ComputeNode }) {
         <Stat label="Available" value={node.capacity.availableSlots} />
       </div>
 
+      {node.metricsObservedAt && (
+        <p className="text-xs text-muted-foreground">
+          {node.status === "offline"
+            ? "Offline · last known metrics"
+            : "Metrics observed"}{" "}
+          {relativeTime(node.metricsObservedAt)}
+        </p>
+      )}
       <div className="space-y-2.5">
         <MetricBar
           label="CPU"

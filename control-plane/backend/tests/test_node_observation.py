@@ -376,3 +376,133 @@ async def test_offline_does_not_erase_instance_state(instance_sync):
     assert instance.observed_state.value == "running"
     assert instance.last_observed_at == before
     service.instances.list_by_node.assert_not_awaited()
+
+
+async def test_live_snapshot_persists_metrics_and_components(observation):
+    service, node = observation
+    payload = service.client.get_snapshot.return_value.model_dump()
+    payload["agent"]["uptime_seconds"] = 1234.5
+    payload["node_metrics"] = {
+        "cpu": {"usage_percent": 7.8},
+        "memory": {
+            "total_bytes": 16_000_000_000,
+            "used_bytes": 3_000_000_000,
+            "available_bytes": 13_000_000_000,
+            "usage_percent": 18.75,
+        },
+        "root_disk": {"used_bytes": 999},
+        "mc_iaas_disk": {
+            "total_bytes": 115_000_000_000,
+            "used_bytes": 18_000_000_000,
+            "free_bytes": 97_000_000_000,
+            "usage_percent": 15.65,
+        },
+    }
+    payload["node_health"].update(
+        {
+            "libvirt": {"healthy": True},
+            "network": {"healthy": False},
+            "storage": {"healthy": True},
+            "invariants": {"healthy": False, "detail": "network_unavailable: test"},
+        }
+    )
+    service.client.get_snapshot.return_value = AgentSnapshot.model_validate(payload)
+    await service.refresh_node(node.id)
+    assert node.agent_uptime_seconds == 1234.5
+    assert node.cpu_usage_percent == 7.8
+    assert (
+        node.memory_total_bytes,
+        node.memory_used_bytes,
+        node.memory_available_bytes,
+        node.memory_usage_percent,
+    ) == (16_000_000_000, 3_000_000_000, 13_000_000_000, 18.75)
+    assert (
+        node.storage_total_bytes,
+        node.storage_used_bytes,
+        node.storage_available_bytes,
+        node.storage_usage_percent,
+    ) == (115_000_000_000, 18_000_000_000, 97_000_000_000, 15.65)
+    assert (
+        node.libvirt_health,
+        node.network_health,
+        node.storage_health,
+        node.invariants_health,
+    ) == (True, False, True, False)
+    assert node.invariants_details == "network_unavailable: test"
+    assert node.metrics_observed_at == node.last_seen_at
+
+
+async def test_partial_live_observation_preserves_values(observation):
+    service, node = observation
+    await test_live_snapshot_persists_metrics_and_components(observation)
+    previous = node.metrics_observed_at
+    previous_health = node.last_observed_at
+    payload = service.client.get_snapshot.return_value.model_dump()
+    payload["node_metrics"] = None
+    payload["agent"]["uptime_seconds"] = None
+    payload["node_health"] = {"libvirt": {"healthy": False}}
+    service.client.get_snapshot.return_value = AgentSnapshot.model_validate(payload)
+    await service.refresh_node(node.id)
+    assert node.reachability == "online"
+    assert node.cpu_usage_percent == 7.8
+    assert node.memory_used_bytes == 3_000_000_000
+    assert node.storage_used_bytes == 18_000_000_000
+    assert node.agent_uptime_seconds == 1234.5
+    assert node.metrics_observed_at == previous
+    assert node.last_observed_at == previous_health
+    assert node.libvirt_health is False
+    assert node.storage_health is True
+    assert node.observed_ready is True
+    payload["node_metrics"] = {"cpu": {"usage_percent": 0}, "memory": {"used_bytes": None}}
+    service.client.get_snapshot.return_value = AgentSnapshot.model_validate(payload)
+    await service.refresh_node(node.id)
+    assert node.cpu_usage_percent == 0
+    assert node.memory_used_bytes == 3_000_000_000
+
+
+async def test_offline_preserves_latest_telemetry(observation):
+    service, node = observation
+    await test_live_snapshot_persists_metrics_and_components(observation)
+    observed = node.metrics_observed_at
+    service.offline_threshold = 1
+    service.client.get_snapshot.side_effect = AgentUnavailableError()
+    with pytest.raises(AgentUnavailableError):
+        await service.refresh_node(node.id)
+    assert node.reachability == "offline"
+    assert node.cpu_usage_percent == 7.8
+    assert node.memory_used_bytes == 3_000_000_000
+    assert node.storage_used_bytes == 18_000_000_000
+    assert node.metrics_observed_at == observed
+    assert node.storage_health is True
+
+
+@pytest.mark.parametrize("status", ["online", "offline", "unavailable", "unknown"])
+async def test_minecraft_status_from_snapshot(instance_sync, status):
+    from app.schemas.agent import AgentInstance
+
+    service, node, instance = instance_sync
+    service.client.get_snapshot.return_value.instances = [
+        AgentInstance(
+            name=instance.name,
+            state="running",
+            minecraft_status=status,
+        )
+    ]
+    await service.refresh_node(node.id)
+    assert instance.minecraft_status.value == status
+    assert instance.desired_state.value == "stopped"
+
+
+async def test_partial_capacity_retains_valid_fields_and_freshness(observation):
+    service, node = observation
+    old_time = node.last_observed_at
+    payload = service.client.get_snapshot.return_value.model_dump()
+    payload["node_health"]["capacity"] = {"active_instances": 1, "available_slots": None}
+    service.client.get_snapshot.return_value = AgentSnapshot.model_validate(payload)
+    await service.refresh_node(node.id)
+    assert node.reachability == "online"
+    assert node.active_instances == 1
+    assert node.available_slots == 1
+    assert node.max_active_instances == 4
+    assert node.last_observed_at == old_time
+    assert node.last_error == "Partial Agent snapshot"

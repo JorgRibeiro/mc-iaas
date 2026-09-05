@@ -267,3 +267,98 @@ test("node refresh and event filters use real API", async () => {
     "http://control.test/api/v1/events?limit=100&level=warning",
   ]);
 });
+
+const liveNode = {
+  id: "live",
+  name: "JORGE",
+  enabled: true,
+  reachability: "online" as const,
+  observed_health: "healthy" as const,
+  observed_ready: true,
+  agent_version: "0.1.0",
+  agent_uptime_seconds: 1234.5,
+  last_seen_at: "2026-09-05T12:00:00Z",
+  last_observed_at: "2026-09-05T12:00:00Z",
+  metrics_observed_at: "2026-09-05T12:00:00Z",
+  last_error: null,
+  health: { libvirt: true, network: false, storage: true, invariants: null },
+  capacity: {
+    max_active_instances: 4,
+    active_instances: 0,
+    occupied_runtime_slots: 0,
+    available_slots: 4,
+  },
+  metrics: {
+    cpu: { usage_percent: 7.8 },
+    memory: {
+      total_bytes: 16 * 1024 ** 3,
+      used_bytes: 3 * 1024 ** 3,
+      available_bytes: 13 * 1024 ** 3,
+      usage_percent: 18.75,
+    },
+    storage: {
+      total_bytes: 115e9,
+      used_bytes: 18.2e9,
+      available_bytes: 96.8e9,
+      usage_percent: 15.8,
+    },
+  },
+};
+test("live node maps bytes, health, uptime and preserves offline values", () => {
+  const node = adaptNode(liveNode);
+  assert.equal(node.metrics?.cpu.usagePercent, 7.8);
+  assert.equal(node.metrics?.memory.usedMb, 3072);
+  assert.equal(node.metrics?.mcIaasDisk.usedGb, 18.2);
+  assert.equal(node.metrics?.rootDisk.usedGb, null);
+  assert.equal(node.uptimeSeconds, 1234.5);
+  assert.deepEqual(node.health, {
+    libvirt: "ok",
+    network: "error",
+    storage: "ok",
+    invariants: "unknown",
+  });
+  const offline = adaptNode({ ...liveNode, reachability: "offline" });
+  assert.equal(offline.status, "offline");
+  assert.deepEqual(offline.metrics, node.metrics);
+  assert.equal(offline.metricsObservedAt, liveNode.metrics_observed_at);
+});
+test("live overview metrics use real units and keep null fallbacks", () => {
+  const dto = {
+    infrastructure_status: "operational" as const,
+    total_nodes: 1,
+    online_nodes: 1,
+    running_instances: 0,
+    occupied_runtime_slots: 0,
+    total_runtime_slots: 4,
+    open_critical_conditions: 0,
+    cpu_usage_percent: 0,
+    memory_used_bytes: 3 * 1024 ** 3,
+    memory_total_bytes: 16 * 1024 ** 3,
+    storage_used_bytes: 18.2e9,
+    storage_total_bytes: 115e9,
+  };
+  const overview = adaptOverview(dto);
+  assert.equal(overview.cpuUsagePercent, 0);
+  assert.equal(overview.memoryUsedMb, 3072);
+  assert.equal(overview.storageUsedGb, 18.2);
+  assert.equal(
+    adaptOverview({ ...dto, memory_used_bytes: null }).memoryUsedMb,
+    null,
+  );
+  const node = adaptNode({
+    ...liveNode,
+    metrics: null,
+    health: null,
+    agent_uptime_seconds: null,
+  });
+  assert.equal(node.metrics, null);
+  assert.equal(node.health.storage, "unknown");
+  assert.equal(node.uptimeSeconds, null);
+});
+for (const status of ["offline", "online", "unavailable", "unknown"] as const) {
+  test(`Minecraft ${status} is mapped without deriving it from VM state`, () => {
+    const mapped = adaptInstance({ ...instance, minecraft_status: status });
+    assert.equal(mapped.minecraftStatus, status);
+    assert.equal(mapped.state, "stopped");
+  });
+}

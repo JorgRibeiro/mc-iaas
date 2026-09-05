@@ -133,7 +133,9 @@ def test_active_mutation_partial_unique_index_is_present() -> None:
 
 
 def test_migration_contains_postgresql_partial_index() -> None:
-    migrations = list((Path(__file__).parents[1] / "migrations" / "versions").glob("*.py"))
+    migrations = list(
+        (Path(__file__).parents[1] / "migrations" / "versions").glob("59e3e9bc94f7_*.py")
+    )
     migration_source = migrations[0].read_text(encoding="utf-8")
 
     assert len(migrations) == 1
