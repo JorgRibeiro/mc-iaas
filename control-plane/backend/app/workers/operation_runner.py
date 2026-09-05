@@ -16,6 +16,7 @@ from app.clients.errors import (
     AgentResponseError,
     AgentValidationError,
 )
+from app.models.compute_node import ComputeNode
 from app.models.enums import ObservedInstanceState as Observed
 from app.models.enums import OperationStatus as Status
 from app.models.enums import OperationType as Kind
@@ -23,6 +24,7 @@ from app.models.operation import Operation
 from app.repositories.instance_repository import InstanceRepository
 from app.repositories.node_repository import NodeRepository
 from app.schemas.instance import InstanceCreate
+from app.services.event_service import EventService
 from app.services.instance_service import validate_lifecycle
 from app.services.lifecycle_errors import LifecycleError, NodeNotUsableError
 from app.services.operation_service import MUTATIONS
@@ -46,6 +48,7 @@ class OperationRunner:
         self.client = client
         self.secrets = secrets
         self._task: asyncio.Task | None = None
+        self.observed_after: datetime | None = None
 
     def start(self) -> None:
         if self._task is None or self._task.done():
@@ -61,7 +64,7 @@ class OperationRunner:
     async def recover_interrupted(self) -> None:
         # Single worker only. Never redispatch an operation left claimed by a previous process.
         async with self.sessions() as session:
-            await session.execute(
+            result = await session.execute(
                 update(Operation)
                 .where(Operation.status == Status.IN_PROGRESS, Operation.type.in_(MUTATIONS))
                 .values(
@@ -70,10 +73,19 @@ class OperationRunner:
                     error_code="WorkerInterrupted",
                     error_message="Worker interrupted; outcome unknown",
                 )
+                .returning(Operation.id, Operation.node_id, Operation.instance_id)
             )
+            for row in result.all():
+                EventService(session).emit(
+                    "operation.uncertain",
+                    operation_id=row.id,
+                    node_id=row.node_id,
+                    instance_id=row.instance_id,
+                )
             await session.commit()
 
     async def run(self) -> None:
+        self.observed_after = datetime.now(UTC)
         recovered = False
         while True:
             try:
@@ -89,11 +101,17 @@ class OperationRunner:
 
     async def claim(self) -> UUID | None:
         async with self.sessions() as session:
+            query = select(Operation).where(
+                Operation.status == Status.PENDING, Operation.type.in_(MUTATIONS)
+            )
+            if self.observed_after is not None:
+                query = query.join(ComputeNode, Operation.node_id == ComputeNode.id).where(
+                    ComputeNode.last_seen_at > self.observed_after
+                )
             operation = await session.scalar(
-                select(Operation)
-                .where(Operation.status == Status.PENDING, Operation.type.in_(MUTATIONS))
-                .order_by(Operation.requested_at, Operation.id)
-                .with_for_update(skip_locked=True)
+                query.order_by(Operation.requested_at, Operation.id).with_for_update(
+                    skip_locked=True, of=Operation
+                )
             )
             if operation is None:
                 return None
@@ -101,6 +119,12 @@ class OperationRunner:
             operation.started_at = datetime.now(UTC)
             operation.attempt_count += 1
             operation_id = operation.id
+            EventService(session).emit(
+                "operation.started",
+                operation_id=operation.id,
+                node_id=operation.node_id,
+                instance_id=operation.instance_id,
+            )
             await session.commit()
             return operation_id
 
@@ -125,7 +149,7 @@ class OperationRunner:
 
     async def mark_uncertain(self, operation_id: UUID) -> None:
         async with self.sessions() as session:
-            await session.execute(
+            result = await session.execute(
                 update(Operation)
                 .where(Operation.id == operation_id, Operation.status == Status.IN_PROGRESS)
                 .values(
@@ -134,7 +158,15 @@ class OperationRunner:
                     error_code="DispatchInterrupted",
                     error_message="Dispatch outcome unknown",
                 )
+                .returning(Operation.id, Operation.node_id, Operation.instance_id)
             )
+            for row in result.all():
+                EventService(session).emit(
+                    "operation.uncertain",
+                    operation_id=row.id,
+                    node_id=row.node_id,
+                    instance_id=row.instance_id,
+                )
             await session.commit()
         logger.warning("operation.uncertain operation_id=%s", operation_id)
 
@@ -203,5 +235,11 @@ class OperationRunner:
                 operation.error_code = "AgentOutcomeUnknown"
                 operation.error_message = "Agent outcome unknown; automatic retry disabled"
             operation.completed_at = datetime.now(UTC)
+            EventService(session).emit(
+                f"operation.{operation.status.value}",
+                operation_id=operation.id,
+                node_id=operation.node_id,
+                instance_id=operation.instance_id,
+            )
             await session.commit()
             logger.info("operation.%s operation_id=%s", operation.status.value, operation_id)

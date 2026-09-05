@@ -13,6 +13,7 @@ from app.db.session import async_session_factory, engine
 from app.secrets.environment import EnvironmentSecretProvider
 from app.workers.node_poller import NodePoller
 from app.workers.operation_runner import OperationRunner
+from app.workers.reconciliation_loop import ReconciliationLoop
 
 
 @asynccontextmanager
@@ -42,13 +43,19 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
                 application.state.secret_provider,
             )
             application.state.operation_runner = runner
+            reconciliation = ReconciliationLoop(async_session_factory, settings)
+            application.state.reconciliation_loop = reconciliation
             poller.start()
             runner.start()
+            reconciliation.start()
             try:
                 yield
             finally:
                 try:
-                    await runner.stop()
+                    try:
+                        await reconciliation.stop()
+                    finally:
+                        await runner.stop()
                 finally:
                     await poller.stop()
     finally:

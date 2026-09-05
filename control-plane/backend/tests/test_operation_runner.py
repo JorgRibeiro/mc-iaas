@@ -22,6 +22,7 @@ def runner(monkeypatch):
     from app.workers import operation_runner as module
 
     session = AsyncMock(spec=AsyncSession)
+    session.execute.return_value = Mock(all=Mock(return_value=[]))
     session.__aenter__.return_value = session
     client = AsyncMock()
     secrets = Mock()
@@ -108,7 +109,7 @@ async def test_claim_dispatch_success(runner, kind, state):
     assert instance.observed_runtime_slot == (1 if state == "running" else None)
     assert (instance.deleted_at is not None) == (kind == Kind.DELETE)
     query = session.scalar.call_args.args[0].compile(dialect=postgresql.dialect())
-    assert "FOR UPDATE SKIP LOCKED" in str(query)
+    assert "FOR UPDATE OF operations SKIP LOCKED" in str(query)
     assert session.commit.await_count == 2
 
 
@@ -160,3 +161,13 @@ async def test_runner_stop_does_not_leave_task(runner):
     await asyncio.wait_for(started.wait(), 1)
     await asyncio.wait_for(worker.stop(), 1)
     assert task.done()
+
+
+async def test_pending_startup_claim_requires_new_node_observation(runner):
+    worker, session, *_ = runner
+    worker.observed_after = datetime.now(UTC)
+    await worker.claim()
+    query = session.scalar.call_args.args[0].compile(dialect=postgresql.dialect())
+    assert "JOIN compute_nodes" in str(query)
+    assert "compute_nodes.last_seen_at >" in str(query)
+    assert worker.observed_after in query.params.values()

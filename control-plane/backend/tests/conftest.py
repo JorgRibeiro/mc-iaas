@@ -22,4 +22,7 @@ def lifespan_poller(monkeypatch):
     runner = Mock()
     runner.stop = AsyncMock()
     monkeypatch.setattr(main, "OperationRunner", Mock(return_value=runner))
+    reconciliation = Mock()
+    reconciliation.stop = AsyncMock()
+    monkeypatch.setattr(main, "ReconciliationLoop", Mock(return_value=reconciliation))
     return poller

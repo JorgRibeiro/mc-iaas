@@ -39,9 +39,11 @@ class Settings(BaseSettings):
         default=300.0, gt=0, allow_inf_nan=False, validation_alias="NODE_MAX_BACKOFF"
     )
 
-    reconciliation_interval: float = Field(default=15.0, validation_alias="RECONCILIATION_INTERVAL")
+    reconciliation_interval: float = Field(
+        default=15.0, gt=0, allow_inf_nan=False, validation_alias="RECONCILIATION_INTERVAL"
+    )
     reconciliation_retry_limit: int = Field(
-        default=3, validation_alias="RECONCILIATION_RETRY_LIMIT"
+        default=3, ge=0, validation_alias="RECONCILIATION_RETRY_LIMIT"
     )
 
     log_level: str = Field(default="INFO", validation_alias="LOG_LEVEL")

@@ -39,12 +39,12 @@ Service = Annotated[InstanceService, Depends(get_instance_service)]
 
 @router.get("", response_model=list[InstanceResponse])
 async def list_instances(service: Service):
-    return await service.list_all()
+    return await service.present(await service.list_all())
 
 
 @router.get("/{instance_id}", response_model=InstanceResponse)
 async def get_instance(instance_id: UUID, service: Service):
-    return await service.get(instance_id)
+    return (await service.present([await service.get(instance_id)]))[0]
 
 
 @router.post("", response_model=OperationAccepted, status_code=202)

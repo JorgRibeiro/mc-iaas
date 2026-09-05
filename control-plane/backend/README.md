@@ -20,7 +20,7 @@ Os quatro modelos atuais são:
 
 Compute Nodes possuem administração e observação automática. Instances possuem placement sticky,
 lifecycle assíncrono e sincronização de estado observado. Operations são a fila durável do runner.
-O refresh manual continua disponível. Reconciler e Activity/EventService ficam para 9.2.7.
+O refresh manual continua disponível. Reconciler, eventos e projeções públicas completam o MVP (9.2.7).
 
 ## Estrutura principal
 
@@ -254,7 +254,7 @@ de Instance. Uma falha em `node_health` não impede sincronizar um inventário v
 
 Workloads sem Instance correspondente nesse Node geram `node.orphan_instance.detected` com id do
 Node e contagem, sem copiar nomes arbitrários remotos para logs. Nenhuma Instance é criada/adotada
-e nenhuma workload é removida. Events persistentes ficam para uma etapa posterior. A etapa 9.2.5 não adicionou endpoints de Instance ou migrations; os endpoints de lifecycle
+e nenhuma workload é removida. Eventos de transição/lifecycle são persistidos no passo 9.2.7; órfãos continuam como log. A etapa 9.2.5 não adicionou endpoints de Instance ou migrations; os endpoints de lifecycle
 são descritos abaixo em 9.2.6.
 
 Validação manual: com o túnel disponível, inicie a API e consulte `GET /api/v1/nodes/{id}` após um
@@ -323,7 +323,8 @@ continuam reservados pelo índice global existente; não há reutilização auto
 **Erros e incerteza:** recusas explícitas 400/401/403/404/409/422 e pré-condições locais terminam
 como failed. Timeout (inclusive 504 do Agent), falha de transporte, 5xx ou resposta incompatível
 terminam como uncertain, pois podem ter ocorrido efeitos remotos. Desired_state é preservado.
-Não há retry, adoção por nome ou resolução automática nesta etapa. Um CREATE failed bloqueia ações
+O runner não faz retry nem adoção por nome. A resolução por observação e correções limitadas
+do Reconciler estão descritas na seção 9.2.7. Um CREATE failed bloqueia ações
 subsequentes: uma workload homônima observada pelo poller não prova que foi criada pelo Control Plane.
 `pending`, `in_progress` e `uncertain` bloqueiam segunda mutação via service e índice único PostgreSQL.
 
@@ -337,7 +338,7 @@ outros erros de banco não são escondidos como duplicidade.
 OperationRunner; encerra/aguarda os workers antes de fechar HTTP e engine. Operations in_progress
 abandonadas por processo anterior viram uncertain no startup, nunca pending. Cancelamento durante
 dispatch tenta persistir uncertain; se o banco estiver indisponível, a recuperação ocorre no próximo
-startup. Reconciler para resolver uncertain e display_state fica para 9.2.7.
+startup. O Reconciler e display_state estão descritos abaixo em 9.2.7.
 
 **Credenciais geradas:** a senha de VM retornada pelo Agent no CREATE é descartada. Não há persistência,
 log nem recuperação dessa senha pela Operation. Esta V1 não entrega credenciais de login da VM ao
@@ -360,3 +361,138 @@ No teste manual com JORGE, aguarde cada Operation antes da próxima mutação. S
 CREATE → START → STOP → START → RESTART → STOP → DELETE. RESTART exige running; DELETE exige stopped.
 Não desligue o processo para repetir uma ação uncertain: ela permanece bloqueada para investigação
 até a resolução apropriada. Nenhuma migration ou mudança no Compute Agent foi necessária.
+
+
+## Fechamento do backend MVP (9.2.7)
+
+`NodePoller` observa, `Reconciler` decide a partir do banco e `OperationRunner` executa HTTP.
+O `ReconciliationLoop` roda a cada `RECONCILIATION_INTERVAL` (padrão 15 segundos), com sessão por
+Instance e isolamento de falhas. Não escolhe placement, não lê tokens e não chama o Agent.
+
+### Matriz conservadora
+
+| Desired | Observed | Decisão |
+| --- | --- | --- |
+| running | running | Convergido |
+| stopped | stopped | Convergido |
+| absent | missing | Convergido |
+| running | stopped | Pode enfileirar START |
+| stopped | running | Pode enfileirar STOP |
+| absent | stopped | Pode enfileirar DELETE, preservando dados |
+| absent | running | Bloqueado, sem STOP implícito |
+| running/stopped | missing | Bloqueado, sem recriação |
+| qualquer | unknown | Aguardar observação |
+| outras divergências, incluindo paused | — | Bloqueado para avaliação manual |
+
+Node precisa estar enabled, online, ready e recente. A observação da Instance também precisa ser
+recente e posterior ao startup do loop. Novas correções aguardam observação posterior à conclusão
+da tentativa anterior. Os mesmos locks Node → Instance e o índice de mutação ativa protegem a
+concorrência com API, poller e runner. Nodes ocupados são tentados no próximo ciclo.
+
+### Uncertain e evidência
+
+Pending/in_progress impedem novas ações. Uncertain também impede comandos concorrentes, mas pode
+ser finalizada a partir de inventário confiável coletado **depois** de `completed_at` da tentativa
+(ou started/requested quando não houver completed_at). O poller só atualiza o timestamp da Instance
+quando a seção de inventário é completa e confiável; null, erros parciais e nomes duplicados não
+produzem evidência. Estados antigos, Node offline/not ready e observações anteriores ao startup
+não resolvem Operations.
+
+- START com desired=running e observado running → succeeded.
+- START com observado stopped → failed (`ObservedStopped`).
+- STOP com observado stopped → succeeded.
+- CREATE com workload observada stopped/running → succeeded.
+- DELETE com missing confirmado → succeeded e tombstone.
+- RESTART continua uncertain: running não comprova reinício. Uma condição/evento bloqueado explica isso.
+
+A resolução emite `operation.resolved`, sem alterar desired_state nem emitir HTTP. Não faz adoption
+de CREATE explicitamente failed. Não há resolução automática para os demais resultados ambíguos.
+
+### Orçamento e recuperação
+
+Cada correção cria uma **nova** Operation com metadata `source=reconciler`; nenhuma Operation antiga
+é reenviada. `RECONCILIATION_RETRY_LIMIT` (padrão 3, mínimo 0) limita o total dessas Operations por
+Instance/tipo durante toda a vida do registro, incluindo tentativas bem-sucedidas. É um orçamento
+persistente, sem janela temporal ou reset automático por restart/convergência. Alterações manuais
+não consomem esse orçamento. Não há endpoint para zerá-lo nesta etapa.
+
+Ao esgotar, `last_error` recebe condição com prefixo `reconciliation:` e é emitido
+`reconciliation.blocked` somente quando essa condição muda. Convergência ou resolução limpa somente
+erros desse prefixo. Falta de capacidade para START também produz bloqueio, sem consumir tentativa.
+
+No startup, o runner converte in_progress abandonadas em uncertain e emite evento; não as reenvia.
+Também aguarda um novo `last_seen_at` do Node antes de reivindicar pending. O Reconciler aguarda nova
+observação de Instance. No shutdown, o lifespan encerra/aguarda ReconciliationLoop, OperationRunner
+e NodePoller antes de fechar HTTP e engine. A restrição continua sendo **1 processo / 1 worker**.
+
+### Eventos e APIs públicas
+
+Eventos são append-only e participam da transação da mudança de domínio: lifecycle solicitado,
+placement, Operation started/succeeded/failed/uncertain/resolved, Node online/offline e transições
+observadas running/stopped/missing. Reconciliation registra ação criada ou bloqueio. Orphans continuam
+em log sanitizado, sem adoption; não se persiste um evento a cada snapshot de órfãos.
+
+Mensagens vêm de catálogo fixo; não contêm bodies remotos, exceções ou secrets. `details` JSON não é
+exposto pela API. Não há endpoints para editar/apagar eventos.
+
+- `GET /api/v1/events`: filtros level, node_id, instance_id, operation_id, event_type e limit (1..500,
+  padrão 100); ordem timestamp DESC/id DESC.
+- `GET /api/v1/overview`: totais de Nodes/Instances, capacidade e condições atuais.
+- `GET /api/v1/monitoring/summary`: distribuições de saúde/estado, capacidade, Nodes com timestamps e
+  condições conhecidas. `historical_metrics_available=false`, `timeseries=[]`.
+- `GET /api/v1/operations`: filtros instance_id, node_id, status e type.
+- GETs de Instances mantêm os campos anteriores e acrescentam resources, runtime, vm_username quando
+  disponível no CREATE persistido, display_state e active_operation resumida. Tombstones continuam ocultos.
+- GETs de Nodes mantêm o contrato existente, sem credential_ref ou token.
+
+Display é derivado: Node ausente/offline/unknown ou last_seen antigo → unavailable; em Node disponível,
+Operation uncertain → uncertain; operações pending/in_progress → creating/starting/stopping/restarting/
+deleting; caso contrário, observed_state. Desired/observed continuam presentes e não são alterados
+para produzir uma animação da UI. Minecraft status não é inferido do estado da VM: o snapshot real
+atual não informa esse campo; unknown/último valor confiável é preservado.
+
+Overview usa Nodes cadastrados (inclusive disabled) e Instances não tombstonadas. Contadores de saúde
+e running/stopped representam a última observação persistida; unavailable é uma dimensão adicional,
+portanto pode se sobrepor a running. Capacidade agrega os últimos valores conhecidos, inclusive Nodes
+offline; não representa slots escalonáveis. Se algum Node não tem determinado valor, seu total é null.
+Sem Nodes, totais são zero. Não se inventam recursos para completar somas.
+
+Infrastructure status: down quando não há Node online com last_seen recente; degraded se há Node
+indisponível, saúde diferente de healthy ou condições abertas; operational nos demais casos.
+Condições atuais identificam Nodes indisponíveis/unhealthy, Operations uncertain e bloqueios do
+Reconciler. `open_critical_conditions` conta essas condições derivadas, não logs históricos nem uma
+lista de invariantes do hypervisor. Uma Instance pode contribuir mais de uma condição distinta.
+
+### Mapeamentos necessários no HttpControlPlaneClient (9.2.8)
+
+Os arquivos `frontend/src/types/index.ts`, `services/client.ts` e `services/queries.ts` foram
+inspecionados sem alterações. O adaptador deve tratar as diferenças abaixo; alguns tipos/telas
+mockados precisarão admitir estados indisponíveis, em vez de fabricar métricas:
+
+| Contrato mockado | Contrato real / adaptação |
+| --- | --- |
+| camelCase | Converter snake_case na fronteira HTTP |
+| Node.status único | Combinar reachability com observed_health; unknown precisa de tratamento |
+| ready/version/lastSeen/capacidade obrigatórios | Podem ser null/desconhecidos; mostrar empty state |
+| Node.region, uptimeSeconds, health de componentes, metrics e invariants | Não coletados/persistidos pelo MVP; não preencher números/saúde fictícios |
+| Instance.state restrito | Mapear display_state; inclui stopped/running/paused/missing/unknown e creating/stopping/restarting/uncertain além dos mocks |
+| vmUsername obrigatório | vm_username pode ser null em registros sem CREATE correspondente |
+| Instance.metrics e persistentStorage | Não disponíveis; preservação de dados no DELETE não equivale a um estado de armazenamento observado |
+| createInstance retorna Instance imediatamente | POST retorna 202 com IDs; acompanhar Operation e consultar Instance |
+| Ações retornam void e toast indica conclusão | 202 confirma fila, não sucesso. Toast/reconsulta devem refletir pending/uncertain/failed |
+| CREATE exige computeNodeId/autogeneratePassword | Omitir esses campos; Scheduler escolhe Node e senha gerada é descartada |
+| PlatformEvent.event/target | Mapear event_type e referências node_id/instance_id/operation_id; resolver nomes se desejado |
+| Overview CPU/memória/storage obrigatórios | MVP fornece estado/capacidade, não esses totais de métricas |
+| getUsageTimeseries | Sem histórico persistente: retornar empty state explícito, nunca amostras fictícias |
+| reconcileNode | Não equivale ao refresh. Não há endpoint de reconciliação do hypervisor; desabilitar/mapear ação conscientemente |
+| Settings editáveis | Permanecem locais/read-only; backend usa env e não expõe Settings editáveis |
+
+O cliente deverá continuar reconsultando Operations/Instances após 202; invalidar queries uma única
+vez, como os mocks atuais, não acompanha conclusão assíncrona. Caso frontend e API usem origens
+diferentes, configure proxy de desenvolvimento ou política CORS explícita na integração; o MVP não
+adicionou uma política CORS aberta.
+
+Histórico de CPU/memória, métricas/componentes não persistidos, Settings API, console/RCON, autenticação,
+HA, failover/migração, adoção de órfãos e resolução comprovada de RESTART ficam fora do MVP. Nenhuma
+migration foi necessária; testes unitários continuam sem JORGE e a integração usa PostgreSQL isolado
+com HTTP simulado.

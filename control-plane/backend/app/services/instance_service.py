@@ -14,6 +14,7 @@ from app.models.operation import Operation
 from app.repositories.instance_repository import InstanceRepository
 from app.repositories.node_repository import NodeRepository
 from app.schemas.instance import InstanceCreate
+from app.services.event_service import EventService
 from app.services.lifecycle_errors import (
     ActiveOperationError,
     InstanceAlreadyExistsError,
@@ -69,6 +70,11 @@ class InstanceService:
     async def list_all(self) -> list[Instance]:
         return await self.repository.list_all()
 
+    async def present(self, instances):
+        from app.services.read_service import ReadService
+
+        return await ReadService(self.session).render_instances(instances)
+
     async def create(self, data: InstanceCreate) -> Operation:
         try:
             if await self.repository.get_by_name(data.name, include_deleted=True) is not None:
@@ -85,6 +91,12 @@ class InstanceService:
             )
             operation = await self.operations.create(
                 instance.id, node.id, OperationType.CREATE, data.model_dump()
+            )
+            EventService(self.session).emit(
+                "instance.scheduled",
+                node_id=node.id,
+                instance_id=instance.id,
+                operation_id=operation.id,
             )
             await self.session.commit()
             logger.info("instance.create.requested instance_id=%s", instance.id)

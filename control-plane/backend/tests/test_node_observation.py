@@ -360,7 +360,9 @@ async def test_health_partial_still_syncs_instances_and_detects_orphan(instance_
     assert instance.minecraft_status.value == "online"  # No Minecraft status in real summary.
     assert "node.orphan_instance.detected" in caplog.text
     assert "private-orphan-name" not in caplog.text
-    service.session.add.assert_not_called()
+    from app.models.event import Event
+
+    assert all(isinstance(call.args[0], Event) for call in service.session.add.call_args_list)
 
 
 async def test_offline_does_not_erase_instance_state(instance_sync):

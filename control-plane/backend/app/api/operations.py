@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_session
+from app.models.enums import OperationStatus, OperationType
 from app.schemas.operation import OperationResponse
 from app.services.lifecycle_errors import OperationNotFoundError
 from app.services.operation_service import OperationService
@@ -16,8 +17,16 @@ Session = Annotated[AsyncSession, Depends(get_session)]
 
 
 @router.get("", response_model=list[OperationResponse])
-async def list_operations(session: Session, instance_id: UUID | None = None):
-    return await OperationService(session).list_all(instance_id)
+async def list_operations(
+    session: Session,
+    instance_id: UUID | None = None,
+    node_id: UUID | None = None,
+    status: OperationStatus | None = None,
+    type: OperationType | None = None,
+):
+    return await OperationService(session).list_all(
+        instance_id, node_id=node_id, status=status, type=type
+    )
 
 
 @router.get("/{operation_id}", response_model=OperationResponse)

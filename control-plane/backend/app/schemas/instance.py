@@ -4,7 +4,14 @@ from datetime import datetime
 from typing import Annotated
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    computed_field,
+    field_validator,
+)
 
 from app.models.enums import DesiredInstanceState, MinecraftStatus, ObservedInstanceState
 
@@ -51,6 +58,7 @@ class InstanceResponse(BaseModel):
     memory_mb: int
     vcpus: int
     minecraft_version: str
+    vm_username: str | None = None
     observed_runtime_slot: int | None
     observed_runtime_ip: str | None
     observed_external_port: int | None
@@ -59,3 +67,38 @@ class InstanceResponse(BaseModel):
     last_error: str | None
     created_at: datetime
     updated_at: datetime
+    display_state: str = "unknown"
+    active_operation: "ActiveOperationSummary | None" = None
+
+    @computed_field
+    @property
+    def resources(self) -> dict[str, int]:
+        return {"memory_mb": self.memory_mb, "vcpus": self.vcpus}
+
+    @computed_field
+    @property
+    def runtime(self) -> dict | None:
+        if all(
+            value is None
+            for value in (
+                self.observed_runtime_slot,
+                self.observed_runtime_ip,
+                self.observed_external_port,
+            )
+        ):
+            return None
+        return {
+            "slot": self.observed_runtime_slot,
+            "ip": self.observed_runtime_ip,
+            "external_port": self.observed_external_port,
+        }
+
+
+class ActiveOperationSummary(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: UUID
+    type: str
+    status: str
+
+
+InstanceResponse.model_rebuild()

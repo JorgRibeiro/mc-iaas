@@ -190,6 +190,85 @@ async def test_durable_lifecycle_and_constraints():
                         await client.get("/api/v1/operations", params={"instance_id": remove_id})
                     ).json()
                     assert operations[0]["status"] == "succeeded"
+                    # Observe after timeout, then resolve from trusted inventory without dispatch.
+                    from app.schemas.agent import AgentSnapshot
+                    from app.services.node_observation_service import NodeObservationService
+                    from app.services.reconciler import Reconciler
+
+                    observer_client = AsyncMock()
+                    observer_client.get_snapshot.return_value = AgentSnapshot.model_validate(
+                        {
+                            "generated_at": datetime.now(UTC),
+                            "agent": {"version": "0.1.0"},
+                            "node_health": {
+                                "status": "healthy",
+                                "ready": True,
+                                "capacity": {
+                                    "max_active_instances": 4,
+                                    "active_instances": 1,
+                                    "occupied_runtime_slots": 1,
+                                    "available_slots": 3,
+                                },
+                            },
+                            "instances": [{"name": "test-vm", "state": "running"}],
+                            "errors": {},
+                        }
+                    )
+                    async with sessions() as session:
+                        instance = await session.get(Instance, UUID(instance_id))
+                        await NodeObservationService(
+                            session, observer_client, secrets
+                        ).refresh_node(instance.compute_node_id)
+                    async with sessions() as session:
+                        await Reconciler(session).reconcile(UUID(instance_id))
+                    assert (await client.get(operation_url)).json()["status"] == "succeeded"
+                    events = (
+                        await client.get(
+                            "/api/v1/events",
+                            params={"event_type": "operation.resolved", "instance_id": instance_id},
+                        )
+                    ).json()
+                    assert len(events) == 1
+                    assert "details" not in events[0]
+                    assert "discarded-secret" not in str(events)
+                    # A fresh persisted divergence queues exactly one automatic STOP.
+                    async with sessions() as session:
+                        instance = await session.get(Instance, UUID(instance_id))
+                        instance.desired_state = "stopped"
+                        instance.last_observed_at = datetime.now(UTC)
+                        await session.commit()
+                    async with sessions() as session:
+                        await Reconciler(session).reconcile(UUID(instance_id))
+                    projected = (await client.get(url)).json()
+                    assert projected["display_state"] == "stopping"
+                    assert projected["active_operation"]["type"] == "stop"
+                    runner.client = ComputeAgentClient(http)
+                    assert await runner.run_once()
+                    assert (await client.get(url)).json()["observed_state"] == "stopped"
+                    # A zero retry budget blocks and emits once across repeated cycles.
+                    async with sessions() as session:
+                        instance = await session.get(Instance, UUID(instance_id))
+                        instance.desired_state = "running"
+                        instance.last_observed_at = datetime.now(UTC)
+                        await session.commit()
+                    for _ in range(2):
+                        async with sessions() as session:
+                            await Reconciler(session, retry_limit=0).reconcile(UUID(instance_id))
+                    events = (
+                        await client.get(
+                            "/api/v1/events",
+                            params={
+                                "event_type": "reconciliation.blocked",
+                                "instance_id": instance_id,
+                            },
+                        )
+                    ).json()
+                    assert len(events) == 1
+                    assert (await client.get("/api/v1/overview")).json()["total_instances"] == 1
+                    assert (await client.get("/api/v1/monitoring/summary")).json()[
+                        "historical_metrics_available"
+                    ] is False
+
         finally:
             app.dependency_overrides.pop(get_session, None)
             await transaction.rollback()

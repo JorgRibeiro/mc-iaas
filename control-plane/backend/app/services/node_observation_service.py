@@ -15,6 +15,7 @@ from app.repositories.instance_repository import InstanceRepository
 from app.repositories.node_repository import NodeRepository
 from app.schemas.agent import AgentSnapshot
 from app.secrets.provider import SecretProvider
+from app.services.event_service import EventService
 from app.services.node_service import NodeNotFoundError
 
 logger = logging.getLogger(__name__)
@@ -80,6 +81,8 @@ class NodeObservationService:
                     if snapshot.errors or snapshot.node_health is None
                     else None
                 )
+            if node.reachability != previous_reachability:
+                EventService(self.session).emit(f"node.{node.reachability.value}", node_id=node_id)
             # Persist failures before translating them into an unsuccessful HTTP response.
             await self.session.commit()
         except BaseException:
@@ -111,6 +114,7 @@ class NodeObservationService:
             )
         states = {state.value: state for state in ObservedInstanceState}
         for instance in known:
+            previous_state = instance.observed_state
             reported = inventory.get(instance.name)
             if reported is None:
                 instance.observed_state = ObservedInstanceState.MISSING
@@ -125,6 +129,16 @@ class NodeObservationService:
                 instance.observed_external_port = runtime.external_port if runtime else None
                 if reported.minecraft_status is not None:
                     instance.minecraft_status = reported.minecraft_status
+            if instance.observed_state != previous_state and instance.observed_state.value in {
+                "running",
+                "stopped",
+                "missing",
+            }:
+                EventService(self.session).emit(
+                    f"instance.observed.{instance.observed_state.value}",
+                    node_id=node_id,
+                    instance_id=instance.id,
+                )
             instance.last_observed_at = observed_at
             # No observation errors are currently written on Instances. Preserve errors
             # owned by other operations until their provenance is defined.

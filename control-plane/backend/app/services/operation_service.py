@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.enums import OperationStatus, OperationType
 from app.models.operation import Operation
+from app.services.event_service import EventService
 from app.services.lifecycle_errors import (
     ActiveOperationError,
     LifecycleError,
@@ -63,6 +64,12 @@ class OperationService:
         )
         self.session.add(operation)
         await self.session.flush()
+        EventService(self.session).emit(
+            f"instance.{kind.value}.requested",
+            node_id=node_id,
+            instance_id=instance_id,
+            operation_id=operation.id,
+        )
         return operation
 
     async def get(self, operation_id: UUID) -> Operation:
@@ -71,8 +78,18 @@ class OperationService:
             raise OperationNotFoundError()
         return operation
 
-    async def list_all(self, instance_id: UUID | None = None) -> list[Operation]:
+    async def list_all(
+        self,
+        instance_id: UUID | None = None,
+        *,
+        node_id: UUID | None = None,
+        status: OperationStatus | None = None,
+        type: OperationType | None = None,
+    ) -> list[Operation]:
         query = select(Operation).order_by(Operation.requested_at, Operation.id)
         if instance_id is not None:
             query = query.where(Operation.instance_id == instance_id)
+        for field, value in {"node_id": node_id, "status": status, "type": type}.items():
+            if value is not None:
+                query = query.where(getattr(Operation, field) == value)
         return list((await self.session.scalars(query)).all())
