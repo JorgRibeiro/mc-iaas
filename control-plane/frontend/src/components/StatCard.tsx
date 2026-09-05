@@ -27,7 +27,7 @@ export function StatCard({
   caption?: string;
   icon?: LucideIcon;
   tooltip?: string;
-  bar?: { used: number; total: number };
+  bar?: { used: number | null | undefined; total: number | null | undefined };
   children?: ReactNode;
   className?: string;
 }) {
@@ -58,7 +58,7 @@ export function StatCard({
 
       <div className="flex items-baseline gap-1.5">
         <span className="tabular text-2xl leading-none font-semibold">
-          {value}
+          {value ?? "—"}
         </span>
         {unit && <span className="text-xs text-muted-foreground">{unit}</span>}
       </div>

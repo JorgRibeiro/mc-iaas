@@ -35,12 +35,7 @@ import {
   formatTimestamp,
   percentOf,
 } from "@/lib/format";
-import {
-  instancesQuery,
-  nodesQuery,
-  overviewQuery,
-  timeseriesQuery,
-} from "@/services/queries";
+import { instancesQuery, monitoringQuery } from "@/services/queries";
 import type { InstanceState } from "@/types";
 
 export const Route = createFileRoute("/monitoring")({
@@ -48,29 +43,21 @@ export const Route = createFileRoute("/monitoring")({
 });
 
 function MonitoringPage() {
-  const overview = useQuery(overviewQuery);
-  const nodes = useQuery(nodesQuery);
+  const monitoring = useQuery(monitoringQuery);
   const instances = useQuery(instancesQuery);
-  const timeseries = useQuery(timeseriesQuery);
-  const error =
-    overview.error ?? nodes.error ?? instances.error ?? timeseries.error;
-  const summary = overview.data;
-  const nodeList = nodes.data;
+  const error = monitoring.error ?? instances.error;
+  const summary = monitoring.data?.overview;
+  const nodeList = monitoring.data?.nodes;
   const instanceList = instances.data;
-  const timeseriesData = timeseries.data;
-
+  const timeseriesData = monitoring.data?.timeseries;
   if (error)
     return (
       <ErrorState
         message={error.message}
-        onRetry={() =>
-          void Promise.all([
-            overview.refetch(),
-            nodes.refetch(),
-            instances.refetch(),
-            timeseries.refetch(),
-          ])
-        }
+        onRetry={() => {
+          void monitoring.refetch();
+          void instances.refetch();
+        }}
       />
     );
 
@@ -90,6 +77,13 @@ function MonitoringPage() {
       "starting",
       "unavailable",
       "deleting",
+      "creating",
+      "stopping",
+      "restarting",
+      "uncertain",
+      "missing",
+      "unknown",
+      "paused",
     ] as InstanceState[]
   ).map((state) => ({
     state,
@@ -101,7 +95,7 @@ function MonitoringPage() {
     <>
       <PageHeader
         title="Monitoring"
-        description="Aggregated health, utilization and invariant signals across the mock infrastructure."
+        description="Aggregated health, utilization and invariant signals from the latest persisted observations."
       />
 
       {!summary ? (
@@ -122,7 +116,7 @@ function MonitoringPage() {
           />
           <StatCard
             label="Aggregate capacity"
-            value={`${summary.slotsUsed}/${summary.slotsTotal}`}
+            value={`${summary.slotsUsed ?? "—"}/${summary.slotsTotal ?? "—"}`}
             icon={Server}
             bar={{
               used: summary.slotsUsed,
@@ -208,29 +202,29 @@ function MonitoringPage() {
                   <div className="grid gap-3 sm:grid-cols-3">
                     <MetricBar
                       label="CPU"
-                      used={node.metrics.cpu.usagePercent}
+                      used={node.metrics?.cpu.usagePercent}
                       total={100}
-                      hint={formatPercent(node.metrics.cpu.usagePercent)}
+                      hint={formatPercent(node.metrics?.cpu.usagePercent)}
                     />
                     <MetricBar
                       label="Memory"
-                      used={node.metrics.memory.usedMb}
-                      total={node.metrics.memory.totalMb}
+                      used={node.metrics?.memory.usedMb}
+                      total={node.metrics?.memory.totalMb}
                       hint={formatPercent(
                         percentOf(
-                          node.metrics.memory.usedMb,
-                          node.metrics.memory.totalMb,
+                          node.metrics?.memory.usedMb,
+                          node.metrics?.memory.totalMb,
                         ),
                       )}
                     />
                     <MetricBar
                       label="Storage"
-                      used={node.metrics.mcIaasDisk.usedGb}
-                      total={node.metrics.mcIaasDisk.totalGb}
+                      used={node.metrics?.mcIaasDisk.usedGb}
+                      total={node.metrics?.mcIaasDisk.totalGb}
                       hint={formatPercent(
                         percentOf(
-                          node.metrics.mcIaasDisk.usedGb,
-                          node.metrics.mcIaasDisk.totalGb,
+                          node.metrics?.mcIaasDisk.usedGb,
+                          node.metrics?.mcIaasDisk.totalGb,
                         ),
                       )}
                     />
@@ -295,6 +289,24 @@ function MonitoringPage() {
         </section>
       </div>
 
+      <section className="panel p-4 space-y-3">
+        <h2 className="text-sm font-semibold">Open conditions</h2>
+        {monitoring.data?.conditions.length ? (
+          monitoring.data.conditions.map((condition, index) => (
+            <p
+              key={`${condition.code}-${index}`}
+              className="text-sm text-warning"
+            >
+              {condition.code} ·{" "}
+              {condition.instance_id ?? condition.node_id ?? "Infrastructure"}
+            </p>
+          ))
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            No current conditions reported.
+          </p>
+        )}
+      </section>
       <section className="space-y-3">
         <div>
           <h2 className="text-sm font-semibold">Recent invariants</h2>
@@ -304,8 +316,8 @@ function MonitoringPage() {
         </div>
         {invariants.length === 0 ? (
           <EmptyState
-            title="No invariant violations"
-            description="All reachable nodes report internally consistent state."
+            title="Detailed invariants unavailable"
+            description="No detailed invariant records are supplied for this view."
           />
         ) : (
           <div className="panel overflow-x-auto">

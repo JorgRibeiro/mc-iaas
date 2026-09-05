@@ -36,12 +36,25 @@ export function InstanceActions({
   const navigate = useNavigate();
   const [confirm, setConfirm] = useState<Destructive>(null);
 
-  const disabled = action.isPending || instance.state === "deleting";
+  const disabled =
+    action.isPending ||
+    !!instance.activeOperation ||
+    !["running", "stopped", "paused"].includes(instance.state);
   const canStart = instance.state === "stopped";
-  const canStop = instance.state === "running" || instance.state === "starting";
+  const canStop =
+    instance.state === "running" ||
+    instance.state === "paused" ||
+    instance.state === "stopped";
 
   function run(kind: "start" | "stop" | "restart" | "delete") {
-    action.mutate({ action: kind, id: instance.id, name: instance.name });
+    action.mutate(
+      { action: kind, id: instance.id, name: instance.name },
+      {
+        onSuccess: () => {
+          if (kind === "delete") void navigate({ to: "/instances" });
+        },
+      },
+    );
   }
 
   const confirmCopy =
@@ -49,7 +62,7 @@ export function InstanceActions({
       ? {
           title: `Delete ${instance.name}?`,
           description:
-            "The instance, its runtime allocation and persistent storage would be removed permanently. This is simulated in the mock adapter.",
+            "The stopped instance will be removed. Persistent data is preserved.",
           cta: "Delete instance",
         }
       : {
@@ -82,7 +95,7 @@ export function InstanceActions({
           <Button
             size="sm"
             variant="outline"
-            disabled={disabled}
+            disabled={disabled || instance.state !== "running"}
             onClick={() => setConfirm("restart")}
           >
             <RotateCcw className="h-3.5 w-3.5" /> Restart
@@ -90,7 +103,7 @@ export function InstanceActions({
           <Button
             size="sm"
             variant="destructive"
-            disabled={disabled}
+            disabled={disabled || instance.state !== "stopped"}
             onClick={() => setConfirm("delete")}
           >
             <Trash2 className="h-3.5 w-3.5" /> Delete
@@ -132,7 +145,7 @@ export function InstanceActions({
               <Square className="h-3.5 w-3.5" /> Stop
             </DropdownMenuItem>
             <DropdownMenuItem
-              disabled={disabled}
+              disabled={disabled || instance.state !== "running"}
               onClick={() => setConfirm("restart")}
             >
               <RotateCcw className="h-3.5 w-3.5" /> Restart
@@ -140,7 +153,7 @@ export function InstanceActions({
             <DropdownMenuSeparator />
             <DropdownMenuItem
               className="text-destructive"
-              disabled={disabled}
+              disabled={disabled || instance.state !== "stopped"}
               onClick={() => setConfirm("delete")}
             >
               <Trash2 className="h-3.5 w-3.5" /> Delete

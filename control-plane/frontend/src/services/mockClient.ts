@@ -66,7 +66,8 @@ function recomputeCapacity() {
     node.capacity.occupiedRuntimeSlots = active.filter((i) => i.runtime).length;
     node.capacity.availableSlots = Math.max(
       0,
-      node.capacity.maxActiveInstances - node.capacity.activeInstances,
+      (node.capacity.maxActiveInstances ?? 0) -
+        (node.capacity.activeInstances ?? 0),
     );
   }
 }
@@ -86,16 +87,16 @@ function setState(instance: Instance, next: InstanceState) {
       ip: `10.50.0.${10 + state.instances.indexOf(instance)}`,
       externalPort: 25565 + state.instances.indexOf(instance),
     };
-    instance.metrics.memoryCurrentMb = instance.memoryMb;
-    instance.metrics.memoryRssMb = Math.round(instance.memoryMb * 0.82);
-    instance.metrics.cpuUsagePercent = 24.6;
+    instance.metrics!.memoryCurrentMb = instance.memoryMb;
+    instance.metrics!.memoryRssMb = Math.round(instance.memoryMb * 0.82);
+    instance.metrics!.cpuUsagePercent = 24.6;
   }
   if (next === "stopped") {
     instance.minecraftStatus = "offline";
     instance.runtime = null;
-    instance.metrics.memoryCurrentMb = 0;
-    instance.metrics.memoryRssMb = 0;
-    instance.metrics.cpuUsagePercent = 0;
+    instance.metrics!.memoryCurrentMb = 0;
+    instance.metrics!.memoryRssMb = 0;
+    instance.metrics!.cpuUsagePercent = 0;
   }
   recomputeCapacity();
 }
@@ -105,31 +106,31 @@ export const mockControlPlaneClient: ControlPlaneClient = {
     recomputeCapacity();
     const online = state.nodes.filter((n) => n.status !== "offline");
     const slotsTotal = state.nodes.reduce(
-      (acc, n) => acc + n.capacity.maxActiveInstances,
+      (acc, n) => acc + (n.capacity.maxActiveInstances ?? 0),
       0,
     );
     const slotsUsed = state.nodes.reduce(
-      (acc, n) => acc + n.capacity.occupiedRuntimeSlots,
+      (acc, n) => acc + (n.capacity.occupiedRuntimeSlots ?? 0),
       0,
     );
     const memoryTotalMb = online.reduce(
-      (acc, n) => acc + n.metrics.memory.totalMb,
+      (acc, n) => acc + n.metrics!.memory.totalMb,
       0,
     );
     const memoryUsedMb = online.reduce(
-      (acc, n) => acc + n.metrics.memory.usedMb,
+      (acc, n) => acc + n.metrics!.memory.usedMb,
       0,
     );
     const storageTotalGb = state.nodes.reduce(
-      (acc, n) => acc + n.metrics.mcIaasDisk.totalGb,
+      (acc, n) => acc + n.metrics!.mcIaasDisk.totalGb,
       0,
     );
     const storageUsedGb = state.nodes.reduce(
-      (acc, n) => acc + n.metrics.mcIaasDisk.usedGb,
+      (acc, n) => acc + n.metrics!.mcIaasDisk.usedGb,
       0,
     );
     const cpu = online.length
-      ? online.reduce((acc, n) => acc + n.metrics.cpu.usagePercent, 0) /
+      ? online.reduce((acc, n) => acc + n.metrics!.cpu.usagePercent, 0) /
         online.length
       : 0;
     const alerts = state.nodes.reduce((acc, n) => acc + n.invariants.length, 0);
@@ -196,14 +197,14 @@ export const mockControlPlaneClient: ControlPlaneClient = {
     const instance: Instance = {
       id: `inst-${input.name}`,
       name: input.name,
-      computeNodeId: input.computeNodeId,
-      state: "starting",
+      computeNodeId: state.nodes.find((node) => node.ready)?.id ?? null,
+      state: "stopped",
       vmUsername: input.vmUsername,
       memoryMb: input.memoryMb,
       vcpus: input.vcpus,
       minecraftVersion: input.minecraftVersion,
       runtime: null,
-      minecraftStatus: "starting",
+      minecraftStatus: "unknown",
       createdAt: nowIso(),
       persistentStorage: "provisioning",
       metrics: {
@@ -293,20 +294,39 @@ export const mockControlPlaneClient: ControlPlaneClient = {
       component: "lifecycle",
       event: "instance.delete.completed",
       target: instance.name,
-      message: "Instance and persistent storage removed (mock).",
+      message: "Instance removed; persistent data preserved (mock).",
     });
     recomputeCapacity();
     return delay(undefined);
   },
 
-  listEvents(): Promise<PlatformEvent[]> {
-    return delay(structuredClone(state.events));
+  listEvents(level): Promise<PlatformEvent[]> {
+    return delay(
+      structuredClone(
+        state.events.filter((event) => !level || event.level === level),
+      ),
+    );
   },
 
   getUsageTimeseries(): Promise<TimeseriesPoint[]> {
     return delay(structuredClone(mockTimeseries));
   },
 
+  async getMonitoringSummary() {
+    const overview = await this.getOverview();
+    return {
+      overview,
+      nodes: await this.listNodes(),
+      nodeHealthDistribution: {},
+      instanceStateDistribution: {},
+      conditions: [],
+      historicalMetricsAvailable: true,
+      timeseries: await this.getUsageTimeseries(),
+    };
+  },
+  async getConnectionStatus() {
+    return "mock" as const;
+  },
   getSettings() {
     return delay(structuredClone(state.settings));
   },

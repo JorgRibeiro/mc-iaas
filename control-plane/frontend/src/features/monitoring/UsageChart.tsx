@@ -21,6 +21,15 @@ export function UsageChart({
   title: string;
   subtitle?: string;
 }) {
+  if (!data.length)
+    return (
+      <div className="panel p-4">
+        <h3 className="text-sm font-medium">{title}</h3>
+        <p className="mt-4 text-sm text-muted-foreground">
+          Historical metrics are not available in this MVP.
+        </p>
+      </div>
+    );
   const color =
     metric === "cpu" ? "var(--color-chart-1)" : "var(--color-chart-2)";
 

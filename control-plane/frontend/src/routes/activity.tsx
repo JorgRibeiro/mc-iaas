@@ -6,7 +6,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { EmptyState, ErrorState, TableSkeleton } from "@/components/StateViews";
 import { Button } from "@/components/ui/button";
 import { EventsTable } from "@/features/events/EventsTable";
-import { eventsQuery } from "@/services/queries";
+import { filteredEventsQuery } from "@/services/queries";
 import type { EventLevel } from "@/types";
 
 type Filter = "all" | EventLevel;
@@ -14,8 +14,10 @@ type Filter = "all" | EventLevel;
 export const Route = createFileRoute("/activity")({ component: ActivityPage });
 
 function ActivityPage() {
-  const events = useQuery(eventsQuery);
   const [filter, setFilter] = useState<Filter>("all");
+  const events = useQuery(
+    filteredEventsQuery(filter === "all" ? undefined : filter),
+  );
   const filtered =
     events.data?.filter(
       (event) => filter === "all" || event.level === filter,
@@ -25,7 +27,7 @@ function ActivityPage() {
     <>
       <PageHeader
         title="Activity"
-        description="Chronological lifecycle, runtime, recovery and security events emitted by the mock Control Plane."
+        description="Chronological lifecycle, runtime, recovery and security events recorded by the Control Plane (latest 100 matching events)."
         actions={
           <div className="flex rounded-md border border-border bg-muted/40 p-1">
             {(["all", "info", "warning", "error"] as Filter[]).map((level) => (

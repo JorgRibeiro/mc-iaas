@@ -39,32 +39,34 @@ export function NodeCard({ node }: { node: ComputeNode }) {
       <div className="space-y-2.5">
         <MetricBar
           label="CPU"
-          used={node.metrics.cpu.usagePercent}
+          used={node.metrics?.cpu.usagePercent}
           total={100}
-          hint={formatPercent(node.metrics.cpu.usagePercent)}
+          hint={formatPercent(node.metrics?.cpu.usagePercent)}
         />
         <MetricBar
           label="Memory"
-          used={node.metrics.memory.usedMb}
-          total={node.metrics.memory.totalMb}
-          hint={`${formatMb(node.metrics.memory.usedMb)} / ${formatMb(node.metrics.memory.totalMb)}`}
+          used={node.metrics?.memory.usedMb}
+          total={node.metrics?.memory.totalMb}
+          hint={`${formatMb(node.metrics?.memory.usedMb)} / ${formatMb(node.metrics?.memory.totalMb)}`}
         />
         <MetricBar
           label="MC-IaaS disk"
-          used={node.metrics.mcIaasDisk.usedGb}
-          total={node.metrics.mcIaasDisk.totalGb}
-          hint={`${formatGb(node.metrics.mcIaasDisk.usedGb)} / ${formatGb(node.metrics.mcIaasDisk.totalGb)}`}
+          used={node.metrics?.mcIaasDisk.usedGb}
+          total={node.metrics?.mcIaasDisk.totalGb}
+          hint={`${formatGb(node.metrics?.mcIaasDisk.usedGb)} / ${formatGb(node.metrics?.mcIaasDisk.totalGb)}`}
         />
       </div>
     </div>
   );
 }
 
-function Stat({ label, value }: { label: string; value: number }) {
+function Stat({ label, value }: { label: string; value: number | null }) {
   return (
     <div className="space-y-0.5">
       <p className="metric-label">{label}</p>
-      <p className="tabular text-lg leading-none font-semibold">{value}</p>
+      <p className="tabular text-lg leading-none font-semibold">
+        {value ?? "—"}
+      </p>
     </div>
   );
 }

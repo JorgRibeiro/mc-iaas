@@ -55,14 +55,14 @@ export function InstancesTable({
                   {instance.name}
                 </Link>
                 <span className="block text-xs text-muted-foreground">
-                  user {instance.vmUsername}
+                  user {instance.vmUsername ?? "—"}
                 </span>
               </TableCell>
               <TableCell>
                 <InstanceStateBadge state={instance.state} />
               </TableCell>
               <TableCell className="text-sm">
-                {nodeName(instance.computeNodeId)}
+                {nodeName(instance.computeNodeId ?? "")}
               </TableCell>
               <TableCell className="tabular text-xs">
                 MC {instance.minecraftVersion}

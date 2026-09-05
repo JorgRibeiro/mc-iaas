@@ -16,13 +16,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { settingsQuery, useUpdateSettings } from "@/services/queries";
+import {
+  settingsQuery,
+  useUpdateSettings,
+  connectionQuery,
+} from "@/services/queries";
+import { apiUrl, isHttpMode } from "@/services";
 import type { ControlPlaneSettings } from "@/types";
 
 export const Route = createFileRoute("/settings")({ component: SettingsPage });
 
 function SettingsPage() {
   const settings = useQuery(settingsQuery);
+  const connection = useQuery(connectionQuery);
   const update = useUpdateSettings();
   const [form, setForm] = useState<ControlPlaneSettings | null>(null);
 
@@ -68,7 +74,8 @@ function SettingsPage() {
           <div className="mb-5">
             <h2 className="text-sm font-medium">Control Plane defaults</h2>
             <p className="mt-1 text-xs text-muted-foreground">
-              Values used to preconfigure future scheduling and creation flows.
+              Local development preferences only. These values do not change
+              server scheduling, polling or quotas.
             </p>
           </div>
           <div className="grid gap-5 sm:grid-cols-2">
@@ -141,21 +148,26 @@ function SettingsPage() {
               <div className="flex flex-wrap items-center gap-2">
                 <h2 className="text-sm font-medium">API Integration</h2>
                 <Badge variant="outline" className="text-muted-foreground">
-                  Not configured
+                  {connection.isPending
+                    ? "Checking…"
+                    : connection.isError
+                      ? "Disconnected"
+                      : isHttpMode
+                        ? "Connected"
+                        : "Mock mode"}
                 </Badge>
               </div>
               <p className="mt-2 text-sm text-muted-foreground">
-                The Control Plane backend has not been connected yet.
+                {isHttpMode
+                  ? apiUrl
+                  : "Using in-memory data for visual development."}
               </p>
             </div>
           </div>
           <div className="mt-5 rounded-md border border-dashed border-border p-3 text-xs leading-relaxed text-muted-foreground">
-            The UI currently uses{" "}
-            <span className="font-mono text-foreground">
-              MockControlPlaneClient
-            </span>
-            . A future HTTP adapter can replace it at the existing service
-            injection point.
+            {isHttpMode
+              ? "HTTP mode. Connection status checks both health and database readiness."
+              : "MockControlPlaneClient is active. No real workload is changed."}
           </div>
         </section>
       </div>

@@ -90,10 +90,12 @@ function NodeDetailPage() {
     ...hostInstances.map((instance) => instance.name),
   ]);
   const hostEvents =
-    events.data?.filter((event) => targets.has(event.target)) ?? [];
-  const memoryPct = node.data.metrics.memory.totalMb
+    events.data?.filter(
+      (event) => event.nodeId === nodeId || targets.has(event.target),
+    ) ?? [];
+  const memoryPct = node.data.metrics
     ? (node.data.metrics.memory.usedMb / node.data.metrics.memory.totalMb) * 100
-    : 0;
+    : null;
 
   return (
     <>
@@ -106,7 +108,7 @@ function NodeDetailPage() {
       </div>
       <PageHeader
         title={node.data.name}
-        description={`Agent v${node.data.agentVersion} · ${node.data.region} · last seen ${relativeTime(node.data.lastSeen)}`}
+        description={`Agent v${node.data.agentVersion ?? "—"} · ${node.data.region} · last seen ${relativeTime(node.data.lastSeen)}`}
         actions={
           <>
             <NodeStatusBadge status={node.data.status} />
@@ -114,7 +116,7 @@ function NodeDetailPage() {
             <Button
               variant="outline"
               size="sm"
-              disabled={reconcile.isPending || !node.data.ready}
+              disabled={reconcile.isPending}
               onClick={() => setConfirmOpen(true)}
             >
               <RotateCw
@@ -122,12 +124,17 @@ function NodeDetailPage() {
                   reconcile.isPending ? "h-4 w-4 animate-spin" : "h-4 w-4"
                 }
               />{" "}
-              Reconcile node
+              Refresh node
             </Button>
           </>
         }
       />
 
+      {node.data.lastError && (
+        <p role="status" className="text-sm text-warning">
+          {node.data.lastError}
+        </p>
+      )}
       <Tabs defaultValue="overview" className="space-y-4">
         <TabsList className="max-w-full justify-start overflow-x-auto">
           <TabsTrigger value="overview">Overview</TabsTrigger>
@@ -147,7 +154,7 @@ function NodeDetailPage() {
             />
             <StatCard
               label="Active instances"
-              value={`${node.data.capacity.activeInstances}/${node.data.capacity.maxActiveInstances}`}
+              value={`${node.data.capacity.activeInstances ?? "—"}/${node.data.capacity.maxActiveInstances ?? "—"}`}
               icon={Server}
               bar={{
                 used: node.data.capacity.activeInstances,
@@ -158,16 +165,22 @@ function NodeDetailPage() {
               label="Occupied slots"
               value={node.data.capacity.occupiedRuntimeSlots}
               icon={Cpu}
-              caption={`${node.data.capacity.availableSlots} slots available`}
+              caption={`${node.data.capacity.availableSlots ?? "—"} slots available`}
             />
             <StatCard
               label="Open invariants"
-              value={node.data.invariants.length}
+              value={
+                node.data.invariantsAvailable === false
+                  ? "—"
+                  : node.data.invariants.length
+              }
               icon={ShieldCheck}
               caption={
                 node.data.invariants.length
                   ? "Review required"
-                  : "Node consistent"
+                  : node.data.invariantsAvailable === false
+                    ? "Not reported"
+                    : "Node consistent"
               }
             />
           </div>
@@ -231,89 +244,114 @@ function NodeDetailPage() {
         </TabsContent>
 
         <TabsContent value="metrics" className="space-y-4">
-          <div className="grid gap-4 xl:grid-cols-3">
-            <Panel
-              title="CPU"
-              description={`${node.data.metrics.cpu.cores} logical cores`}
-            >
-              <MetricBar
-                label="Usage"
-                used={node.data.metrics.cpu.usagePercent}
-                total={100}
-                hint={formatPercent(node.data.metrics.cpu.usagePercent)}
-              />
-              <div className="mt-5 grid grid-cols-3 gap-3">
-                <Value label="Load 1m" value={node.data.metrics.cpu.load1m} />
-                <Value label="Load 5m" value={node.data.metrics.cpu.load5m} />
-                <Value label="Load 15m" value={node.data.metrics.cpu.load15m} />
-              </div>
-            </Panel>
-            <Panel
-              title="Memory"
-              description={`${formatMb(node.data.metrics.memory.availableMb)} available`}
-            >
-              <MetricBar
-                label="Used"
-                used={node.data.metrics.memory.usedMb}
-                total={node.data.metrics.memory.totalMb}
-                hint={formatPercent(memoryPct)}
-              />
-              <div className="mt-5 grid grid-cols-3 gap-3">
-                <Value
-                  label="Used"
-                  value={formatMb(node.data.metrics.memory.usedMb)}
-                />
-                <Value
-                  label="Available"
-                  value={formatMb(node.data.metrics.memory.availableMb)}
-                />
-                <Value
-                  label="Total"
-                  value={formatMb(node.data.metrics.memory.totalMb)}
-                />
-              </div>
-            </Panel>
-            <Panel title="Storage" description="Host filesystem utilization">
-              <div className="space-y-5">
-                <MetricBar
-                  label="Root disk"
-                  used={node.data.metrics.rootDisk.usedGb}
-                  total={node.data.metrics.rootDisk.totalGb}
-                  hint={`${formatGb(node.data.metrics.rootDisk.usedGb)} / ${formatGb(node.data.metrics.rootDisk.totalGb)}`}
-                />
-                <MetricBar
-                  label="MC-IaaS disk"
-                  used={node.data.metrics.mcIaasDisk.usedGb}
-                  total={node.data.metrics.mcIaasDisk.totalGb}
-                  hint={`${formatGb(node.data.metrics.mcIaasDisk.usedGb)} / ${formatGb(node.data.metrics.mcIaasDisk.totalGb)}`}
-                />
-              </div>
-            </Panel>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-3">
-            <StatCard
-              label="CPU usage"
-              value={formatPercent(node.data.metrics.cpu.usagePercent)}
-              icon={Cpu}
+          {!node.data.metrics ? (
+            <EmptyState
+              title="Metrics unavailable"
+              description="Host telemetry is not provided by this MVP."
             />
-            <StatCard
-              label="Memory used"
-              value={formatMb(node.data.metrics.memory.usedMb)}
-              icon={MemoryStick}
-            />
-            <StatCard
-              label="MC-IaaS storage"
-              value={formatGb(node.data.metrics.mcIaasDisk.usedGb)}
-              icon={Database}
-            />
-          </div>
+          ) : (
+            <>
+              <div className="grid gap-4 xl:grid-cols-3">
+                <Panel
+                  title="CPU"
+                  description={`${node.data.metrics?.cpu.cores} logical cores`}
+                >
+                  <MetricBar
+                    label="Usage"
+                    used={node.data.metrics?.cpu.usagePercent}
+                    total={100}
+                    hint={formatPercent(node.data.metrics?.cpu.usagePercent)}
+                  />
+                  <div className="mt-5 grid grid-cols-3 gap-3">
+                    <Value
+                      label="Load 1m"
+                      value={node.data.metrics?.cpu.load1m}
+                    />
+                    <Value
+                      label="Load 5m"
+                      value={node.data.metrics?.cpu.load5m}
+                    />
+                    <Value
+                      label="Load 15m"
+                      value={node.data.metrics?.cpu.load15m}
+                    />
+                  </div>
+                </Panel>
+                <Panel
+                  title="Memory"
+                  description={`${formatMb(node.data.metrics?.memory.availableMb)} available`}
+                >
+                  <MetricBar
+                    label="Used"
+                    used={node.data.metrics?.memory.usedMb}
+                    total={node.data.metrics?.memory.totalMb}
+                    hint={formatPercent(memoryPct)}
+                  />
+                  <div className="mt-5 grid grid-cols-3 gap-3">
+                    <Value
+                      label="Used"
+                      value={formatMb(node.data.metrics?.memory.usedMb)}
+                    />
+                    <Value
+                      label="Available"
+                      value={formatMb(node.data.metrics?.memory.availableMb)}
+                    />
+                    <Value
+                      label="Total"
+                      value={formatMb(node.data.metrics?.memory.totalMb)}
+                    />
+                  </div>
+                </Panel>
+                <Panel
+                  title="Storage"
+                  description="Host filesystem utilization"
+                >
+                  <div className="space-y-5">
+                    <MetricBar
+                      label="Root disk"
+                      used={node.data.metrics?.rootDisk.usedGb}
+                      total={node.data.metrics?.rootDisk.totalGb}
+                      hint={`${formatGb(node.data.metrics?.rootDisk.usedGb)} / ${formatGb(node.data.metrics?.rootDisk.totalGb)}`}
+                    />
+                    <MetricBar
+                      label="MC-IaaS disk"
+                      used={node.data.metrics?.mcIaasDisk.usedGb}
+                      total={node.data.metrics?.mcIaasDisk.totalGb}
+                      hint={`${formatGb(node.data.metrics?.mcIaasDisk.usedGb)} / ${formatGb(node.data.metrics?.mcIaasDisk.totalGb)}`}
+                    />
+                  </div>
+                </Panel>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-3">
+                <StatCard
+                  label="CPU usage"
+                  value={formatPercent(node.data.metrics?.cpu.usagePercent)}
+                  icon={Cpu}
+                />
+                <StatCard
+                  label="Memory used"
+                  value={formatMb(node.data.metrics?.memory.usedMb)}
+                  icon={MemoryStick}
+                />
+                <StatCard
+                  label="MC-IaaS storage"
+                  value={formatGb(node.data.metrics?.mcIaasDisk.usedGb)}
+                  icon={Database}
+                />
+              </div>
+            </>
+          )}
         </TabsContent>
 
         <TabsContent value="invariants">
           {node.data.invariants.length === 0 ? (
             <EmptyState
-              title="No invariant violations"
-              description="The agent reports that infrastructure state is internally consistent."
+              title={
+                node.data.invariantsAvailable === false
+                  ? "Invariants unavailable"
+                  : "No invariant violations"
+              }
+              description="No detailed invariant data is available for this view."
               icon={ShieldCheck}
             />
           ) : (
@@ -364,10 +402,10 @@ function NodeDetailPage() {
       <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Reconcile {node.data.name}?</AlertDialogTitle>
+            <AlertDialogTitle>Refresh {node.data.name}?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will simulate a recovery pass and append mock events. No
-              compute node or agent will be contacted.
+              The Control Plane will request a fresh snapshot and update
+              observed state.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -377,7 +415,7 @@ function NodeDetailPage() {
                 reconcile.mutate({ id: node.data.id, name: node.data.name })
               }
             >
-              Run reconciliation
+              Refresh snapshot
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -410,7 +448,7 @@ function Value({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div>
       <p className="metric-label">{label}</p>
-      <p className="tabular mt-1 text-sm font-medium">{value}</p>
+      <p className="tabular mt-1 text-sm font-medium">{value ?? "—"}</p>
     </div>
   );
 }

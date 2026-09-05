@@ -8,13 +8,19 @@ export function MetricBar({
   hint,
   className,
 }: {
-  used: number;
-  total: number;
+  used: number | null | undefined;
+  total: number | null | undefined;
   label?: string;
   hint?: string;
   className?: string;
 }) {
   const pct = percentOf(used, total);
+  if (pct === null)
+    return (
+      <p className="text-xs text-muted-foreground">
+        {label ?? "Metric"}: unavailable
+      </p>
+    );
   const tone =
     pct >= 90 ? "bg-destructive" : pct >= 70 ? "bg-warning" : "bg-primary";
 

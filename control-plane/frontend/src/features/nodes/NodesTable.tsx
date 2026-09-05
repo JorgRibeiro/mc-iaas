@@ -48,7 +48,7 @@ export function NodesTable({ nodes }: { nodes: ComputeNode[] }) {
                   {node.name}
                 </Link>
                 <span className="block text-xs text-muted-foreground">
-                  agent v{node.agentVersion} · {node.region}
+                  agent v{node.agentVersion ?? "—"} · {node.region}
                 </span>
               </TableCell>
               <TableCell>
@@ -58,22 +58,22 @@ export function NodesTable({ nodes }: { nodes: ComputeNode[] }) {
                 <ReadyBadge ready={node.ready} />
               </TableCell>
               <TableCell className="tabular text-right">
-                {node.capacity.activeInstances}
+                {node.capacity.activeInstances ?? "—"}
               </TableCell>
               <TableCell className="tabular text-right">
-                {node.capacity.occupiedRuntimeSlots}/
-                {node.capacity.maxActiveInstances}
+                {node.capacity.occupiedRuntimeSlots ?? "—"}/
+                {node.capacity.maxActiveInstances ?? "—"}
               </TableCell>
               <TableCell className="tabular text-right">
-                {formatPercent(node.metrics.cpu.usagePercent)}
+                {formatPercent(node.metrics?.cpu.usagePercent)}
               </TableCell>
               <TableCell className="tabular text-xs">
-                {formatMb(node.metrics.memory.usedMb)} /{" "}
-                {formatMb(node.metrics.memory.totalMb)}
+                {formatMb(node.metrics?.memory.usedMb)} /{" "}
+                {formatMb(node.metrics?.memory.totalMb)}
               </TableCell>
               <TableCell className="tabular text-xs">
-                {formatGb(node.metrics.mcIaasDisk.usedGb)} /{" "}
-                {formatGb(node.metrics.mcIaasDisk.totalGb)}
+                {formatGb(node.metrics?.mcIaasDisk.usedGb)} /{" "}
+                {formatGb(node.metrics?.mcIaasDisk.totalGb)}
               </TableCell>
               <TableCell className="tabular text-right">
                 {formatUptime(node.uptimeSeconds)}

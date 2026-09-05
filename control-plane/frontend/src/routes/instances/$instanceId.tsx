@@ -50,7 +50,10 @@ function InstanceDetailPage() {
     (candidate) => candidate.id === instance.data.computeNodeId,
   );
   const instanceEvents =
-    events.data?.filter((event) => event.target === instance.data.name) ?? [];
+    events.data?.filter(
+      (event) =>
+        event.instanceId === instanceId || event.target === instance.data.name,
+    ) ?? [];
   const metrics = instance.data.metrics;
 
   return (
@@ -73,6 +76,17 @@ function InstanceDetailPage() {
         }
       />
 
+      {instance.data.lastError && (
+        <p role="status" className="text-sm text-warning">
+          {instance.data.lastError}
+        </p>
+      )}
+      {instance.data.activeOperation && (
+        <p className="text-xs text-muted-foreground">
+          Operation {instance.data.activeOperation.id} ·{" "}
+          {instance.data.activeOperation.status}
+        </p>
+      )}
       <div className="flex justify-end">
         <InstanceActions instance={instance.data} variant="buttons" />
       </div>
@@ -121,7 +135,7 @@ function InstanceDetailPage() {
               label="Public endpoint"
               value={
                 instance.data.runtime
-                  ? `example.invalid:${instance.data.runtime.externalPort}`
+                  ? `Port ${instance.data.runtime.externalPort ?? "unknown"}`
                   : "Not allocated"
               }
               mono
@@ -137,11 +151,11 @@ function InstanceDetailPage() {
             />
             <Definition
               label="System disk"
-              value={formatGb(metrics.systemStorageGb.totalGb)}
+              value={formatGb(metrics?.systemStorageGb.totalGb)}
             />
             <Definition
               label="Data disk"
-              value={formatGb(metrics.dataStorageGb.totalGb)}
+              value={formatGb(metrics?.dataStorageGb.totalGb)}
             />
             <Definition
               label="Created at"
@@ -152,49 +166,58 @@ function InstanceDetailPage() {
         </TabsContent>
 
         <TabsContent value="metrics" className="space-y-4">
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <StatCard
-              label="CPU usage"
-              value={formatPercent(metrics.cpuUsagePercent)}
-              icon={Cpu}
-              bar={{ used: metrics.cpuUsagePercent, total: 100 }}
-              caption={`${metrics.cpuTimeSeconds.toLocaleString()} seconds CPU time`}
+          {!metrics ? (
+            <EmptyState
+              title="Metrics unavailable"
+              description="Instance telemetry is not available in this MVP."
             />
-            <StatCard
-              label="Current memory"
-              value={formatMb(metrics.memoryCurrentMb)}
-              icon={MemoryStick}
-              bar={{
-                used: metrics.memoryCurrentMb,
-                total: metrics.memoryConfiguredMb,
-              }}
-              caption={`${formatMb(metrics.memoryConfiguredMb)} configured`}
-            />
-            <StatCard
-              label="Resident memory"
-              value={formatMb(metrics.memoryRssMb)}
-              icon={MemoryStick}
-              caption="RSS reported by the hypervisor"
-            />
-            <StatCard
-              label="Network transfer"
-              value={formatMb(metrics.networkRxMb + metrics.networkTxMb)}
-              icon={Network}
-              caption={`${formatMb(metrics.networkRxMb)} RX · ${formatMb(metrics.networkTxMb)} TX`}
-            />
-          </div>
-          <div className="grid gap-4 lg:grid-cols-2">
-            <StoragePanel
-              label="System disk"
-              used={metrics.systemStorageGb.usedGb}
-              total={metrics.systemStorageGb.totalGb}
-            />
-            <StoragePanel
-              label="Persistent data disk"
-              used={metrics.dataStorageGb.usedGb}
-              total={metrics.dataStorageGb.totalGb}
-            />
-          </div>
+          ) : (
+            <>
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <StatCard
+                  label="CPU usage"
+                  value={formatPercent(metrics?.cpuUsagePercent)}
+                  icon={Cpu}
+                  bar={{ used: metrics?.cpuUsagePercent, total: 100 }}
+                  caption={`${metrics?.cpuTimeSeconds.toLocaleString()} seconds CPU time`}
+                />
+                <StatCard
+                  label="Current memory"
+                  value={formatMb(metrics?.memoryCurrentMb)}
+                  icon={MemoryStick}
+                  bar={{
+                    used: metrics?.memoryCurrentMb,
+                    total: metrics?.memoryConfiguredMb,
+                  }}
+                  caption={`${formatMb(metrics?.memoryConfiguredMb)} configured`}
+                />
+                <StatCard
+                  label="Resident memory"
+                  value={formatMb(metrics?.memoryRssMb)}
+                  icon={MemoryStick}
+                  caption="RSS reported by the hypervisor"
+                />
+                <StatCard
+                  label="Network transfer"
+                  value={formatMb(metrics?.networkRxMb + metrics?.networkTxMb)}
+                  icon={Network}
+                  caption={`${formatMb(metrics?.networkRxMb)} RX · ${formatMb(metrics?.networkTxMb)} TX`}
+                />
+              </div>
+              <div className="grid gap-4 lg:grid-cols-2">
+                <StoragePanel
+                  label="System disk"
+                  used={metrics?.systemStorageGb.usedGb}
+                  total={metrics?.systemStorageGb.totalGb}
+                />
+                <StoragePanel
+                  label="Persistent data disk"
+                  used={metrics?.dataStorageGb.usedGb}
+                  total={metrics?.dataStorageGb.totalGb}
+                />
+              </div>
+            </>
+          )}
         </TabsContent>
 
         <TabsContent value="console">
@@ -280,7 +303,7 @@ function Definition({
             : "text-right text-sm font-medium capitalize"
         }
       >
-        {value}
+        {value ?? "—"}
       </dd>
     </div>
   );
@@ -323,9 +346,7 @@ function MockTerminal({
       <div className="text-muted-foreground">
         # {title} · {instanceName}
       </div>
-      <div className="mt-5 text-warning">
-        Mock console — backend integration pending
-      </div>
+      <div className="mt-5 text-warning">Console unavailable in this MVP</div>
       <div className="mt-2 text-muted-foreground">
         No connection has been opened. Interactive output will become available
         through the future Control Plane API.

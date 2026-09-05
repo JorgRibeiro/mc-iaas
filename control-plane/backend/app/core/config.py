@@ -22,6 +22,11 @@ class Settings(BaseSettings):
     host: str = Field(default="127.0.0.1", validation_alias="HOST")
     port: int = Field(default=8001, validation_alias="PORT")
 
+    cors_origins: list[str] = Field(
+        default=["http://localhost:8080", "http://127.0.0.1:8080"],
+        validation_alias="CORS_ORIGINS",
+    )
+
     database_url: str = Field(validation_alias="DATABASE_URL")
 
     agent_connect_timeout: float = Field(default=5.0, validation_alias="AGENT_CONNECT_TIMEOUT")

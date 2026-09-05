@@ -6,14 +6,15 @@ import type {
   OverviewSummary,
   PlatformEvent,
   TimeseriesPoint,
+  MonitoringSummary,
+  EventLevel,
 } from "@/types";
 
 /**
  * Abstract Control Plane client contract.
  *
- * The UI only talks to this interface. Today it is fulfilled by an in-memory
- * mock adapter; later it will be fulfilled by an HTTP client pointing at the
- * real MC-IaaS Control Plane API. No component should fetch directly.
+ * The UI only talks to this interface, implemented by the HTTP client or the
+ * in-memory mock adapter. No component should fetch directly.
  */
 export interface ControlPlaneClient {
   getOverview(): Promise<OverviewSummary>;
@@ -29,8 +30,11 @@ export interface ControlPlaneClient {
   restartInstance(id: string): Promise<void>;
   deleteInstance(id: string): Promise<void>;
 
-  listEvents(): Promise<PlatformEvent[]>;
+  listEvents(level?: EventLevel): Promise<PlatformEvent[]>;
   getUsageTimeseries(): Promise<TimeseriesPoint[]>;
+
+  getMonitoringSummary(): Promise<MonitoringSummary>;
+  getConnectionStatus(): Promise<"connected" | "mock">;
 
   getSettings(): Promise<ControlPlaneSettings>;
   updateSettings(settings: ControlPlaneSettings): Promise<ControlPlaneSettings>;

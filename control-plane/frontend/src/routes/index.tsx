@@ -72,7 +72,7 @@ function OverviewPage() {
     <>
       <PageHeader
         title="Infrastructure overview"
-        description="Fleet health, workload capacity and recent control plane activity. All values are supplied by the in-memory mock adapter."
+        description="Fleet health, workload capacity and recent control plane activity. Current observations supplied by the Control Plane."
       />
 
       {!summary ? (
@@ -89,7 +89,7 @@ function OverviewPage() {
                   : "Down"
             }
             icon={Gauge}
-            caption={`${summary.alerts} open invariants`}
+            caption={`${summary.alerts} open conditions`}
             className="2xl:col-span-2"
           />
           <StatCard
@@ -106,7 +106,7 @@ function OverviewPage() {
           />
           <StatCard
             label="Runtime slots"
-            value={`${summary.slotsUsed}/${summary.slotsTotal}`}
+            value={`${summary.slotsUsed ?? "—"}/${summary.slotsTotal ?? "—"}`}
             icon={Activity}
             bar={{
               used: summary.slotsUsed,
@@ -141,10 +141,10 @@ function OverviewPage() {
             caption={`of ${formatGb(summary.storageTotalGb)}`}
           />
           <StatCard
-            label="Open invariants"
+            label="Open conditions"
             value={summary.alerts}
             icon={ShieldAlert}
-            caption={summary.alerts ? "Requires review" : "No violations"}
+            caption={summary.alerts ? "Requires review" : "No open conditions"}
           />
         </div>
       )}

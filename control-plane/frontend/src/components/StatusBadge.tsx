@@ -62,6 +62,7 @@ const nodeMap: Record<
   NodeStatus,
   { tone: Tone; icon: LucideIcon; label: string }
 > = {
+  unknown: { tone: "neutral", icon: HelpCircle, label: "Unknown" },
   healthy: { tone: "ok", icon: CheckCircle2, label: "Healthy" },
   degraded: { tone: "warn", icon: AlertTriangle, label: "Degraded" },
   unhealthy: { tone: "bad", icon: XCircle, label: "Unhealthy" },
@@ -83,6 +84,13 @@ const instanceMap: Record<
   InstanceState,
   { tone: Tone; icon: LucideIcon; label: string; spin?: boolean }
 > = {
+  creating: { tone: "info", icon: Loader2, label: "Creating", spin: true },
+  stopping: { tone: "info", icon: Loader2, label: "Stopping", spin: true },
+  restarting: { tone: "info", icon: Loader2, label: "Restarting", spin: true },
+  uncertain: { tone: "warn", icon: HelpCircle, label: "Uncertain" },
+  missing: { tone: "bad", icon: CircleSlash, label: "Missing" },
+  unknown: { tone: "neutral", icon: HelpCircle, label: "Unknown" },
+  paused: { tone: "neutral", icon: Pause, label: "Paused" },
   running: { tone: "ok", icon: Play, label: "Running" },
   stopped: { tone: "neutral", icon: Pause, label: "Stopped" },
   starting: { tone: "info", icon: Loader2, label: "Starting", spin: true },
@@ -104,6 +112,7 @@ const mcMap: Record<
   MinecraftStatus,
   { tone: Tone; icon: LucideIcon; label: string; spin?: boolean }
 > = {
+  unavailable: { tone: "neutral", icon: CircleSlash, label: "Unavailable" },
   online: { tone: "ok", icon: CheckCircle2, label: "Online" },
   offline: { tone: "neutral", icon: CircleDashed, label: "Offline" },
   starting: { tone: "info", icon: Loader2, label: "Starting", spin: true },
@@ -144,14 +153,20 @@ export function ReadyBadge({
   ready,
   className,
 }: {
-  ready: boolean;
+  ready: boolean | null;
   className?: string;
 }) {
   return (
     <Pill
       tone={ready ? "ok" : "neutral"}
       icon={ready ? CheckCircle2 : CircleSlash}
-      label={ready ? "Ready: true" : "Ready: false"}
+      label={
+        ready === null
+          ? "Ready: unknown"
+          : ready
+            ? "Ready: true"
+            : "Ready: false"
+      }
       className={className}
     />
   );

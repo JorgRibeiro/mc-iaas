@@ -15,7 +15,7 @@ function NodesPage() {
     <>
       <PageHeader
         title="Compute nodes"
-        description="Registered hosts, agent reachability and available workload capacity. RAYLANDSON-COMPUTE is an offline visual mock."
+        description="Registered hosts, agent reachability and available workload capacity."
       />
       {nodes.isPending ? (
         <TableSkeleton rows={4} />

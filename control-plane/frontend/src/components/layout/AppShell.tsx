@@ -1,3 +1,4 @@
+import { isHttpMode } from "@/services";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import {
@@ -83,9 +84,13 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
 
       <div className="mt-auto px-4">
         <div className="rounded-md border border-sidebar-border bg-sidebar-accent/40 p-3">
-          <p className="text-xs font-medium">Mock data mode</p>
+          <p className="text-xs font-medium">
+            {isHttpMode ? "Live data" : "Mock data mode"}
+          </p>
           <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-            All values are simulated. Control Plane API integration pending.
+            {isHttpMode
+              ? "Current observations from the Control Plane."
+              : "Simulated data for visual development."}
           </p>
         </div>
       </div>
@@ -128,7 +133,7 @@ function GlobalIndicator() {
       </TooltipTrigger>
       <TooltipContent>
         {data
-          ? `${data.nodesOnline}/${data.nodesTotal} compute nodes online · ${data.alerts} open invariants`
+          ? `${data.nodesOnline}/${data.nodesTotal} compute nodes online · ${data.alerts} open conditions`
           : "Aggregating node health"}
       </TooltipContent>
     </Tooltip>
@@ -178,7 +183,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 className="inline-flex items-center gap-1.5 rounded-md border border-warning/35 bg-warning/10 px-2.5 py-1 text-xs font-medium text-warning"
               >
                 <ShieldAlert className="h-3.5 w-3.5" aria-hidden />
-                {data.alerts} invariants
+                {data.alerts} conditions
               </Link>
             )}
             <GlobalIndicator />
