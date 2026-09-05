@@ -22,10 +22,14 @@ class NodeRepository:
         await self.session.flush()
         return node
 
-    async def get_by_id(self, node_id: UUID, *, for_update: bool = False) -> ComputeNode | None:
+    async def get_by_id(
+        self, node_id: UUID, *, for_update: bool = False, skip_locked: bool = False
+    ) -> ComputeNode | None:
         statement = select(ComputeNode).where(ComputeNode.id == node_id)
         if for_update:
-            statement = statement.with_for_update()
+            statement = statement.with_for_update(skip_locked=skip_locked).execution_options(
+                populate_existing=True
+            )
         return await self.session.scalar(statement)
 
     async def get_by_name(self, name: str) -> ComputeNode | None:
@@ -33,6 +37,12 @@ class NodeRepository:
 
     async def list_all(self) -> list[ComputeNode]:
         result = await self.session.scalars(select(ComputeNode).order_by(ComputeNode.name))
+        return list(result.all())
+
+    async def list_enabled(self) -> list[ComputeNode]:
+        result = await self.session.scalars(
+            select(ComputeNode).where(ComputeNode.enabled.is_(True)).order_by(ComputeNode.name)
+        )
         return list(result.all())
 
     async def update(

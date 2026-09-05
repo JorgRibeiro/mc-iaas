@@ -140,3 +140,17 @@ async def test_invalid_capacity_is_protocol_failure(snapshot_payload, value):
     ) as http_client:
         with pytest.raises(AgentResponseError):
             await ComputeAgentClient(http_client).get_snapshot("https://agent.example", "token")
+
+
+async def test_duplicate_inventory_is_partial_not_authoritative(snapshot_payload):
+    snapshot_payload["instances"] = [
+        {"name": "duplicate", "state": "running"},
+        {"name": "duplicate", "state": "stopped"},
+    ]
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda request: httpx.Response(200, json=snapshot_payload))
+    ) as http_client:
+        snapshot = await ComputeAgentClient(http_client).get_snapshot("https://agent.test", "token")
+    assert snapshot.instances is None
+    assert "instances" in snapshot.errors
+    assert snapshot.node_health.status == "healthy"

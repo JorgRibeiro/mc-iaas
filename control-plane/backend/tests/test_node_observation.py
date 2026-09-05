@@ -70,7 +70,7 @@ def observation():
     )
     secrets = Mock(spec=SecretProvider)
     secrets.get_agent_token.return_value = "test-secret"
-    return NodeObservationService(session, client, secrets), node
+    return NodeObservationService(session, client, secrets, offline_threshold=30), node
 
 
 async def test_complete_snapshot_and_lock(observation):
@@ -199,3 +199,178 @@ async def test_database_failure_rolls_back(observation):
     with pytest.raises(RuntimeError):
         await service.refresh_node(node.id)
     service.session.rollback.assert_awaited_once()
+
+
+async def test_offline_threshold_and_recovery_preserve_observations(observation, caplog):
+    service, node = observation
+    service.offline_threshold = 2
+    node.consecutive_failures = 0
+    old_time = node.last_seen_at
+    service.client.get_snapshot.side_effect = AgentTimeoutError()
+    with caplog.at_level("INFO"):
+        for count in (1, 2, 3):
+            with pytest.raises(AgentTimeoutError):
+                await service.refresh_node(node.id)
+            assert node.consecutive_failures == count
+            assert node.reachability == (
+                NodeReachability.ONLINE if count == 1 else NodeReachability.OFFLINE
+            )
+            assert node.observed_health == NodeHealth.DEGRADED
+            assert node.observed_ready is False
+            assert node.available_slots == 1
+            assert node.last_seen_at == old_time
+        service.client.get_snapshot.side_effect = None
+        await service.refresh_node(node.id)
+        await service.refresh_node(node.id)
+    assert node.reachability == NodeReachability.ONLINE
+    assert node.consecutive_failures == 0
+    assert node.last_error is None
+    assert sum(record.message.startswith("node.offline ") for record in caplog.records) == 1
+    assert sum(record.message.startswith("node.online ") for record in caplog.records) == 1
+
+
+async def test_disabled_after_discovery_is_not_polled(observation):
+    service, node = observation
+    node.enabled = False
+    await service.refresh_node(node.id, enabled_only=True)
+    service.client.get_snapshot.assert_not_awaited()
+    service.session.commit.assert_not_awaited()
+
+
+async def test_cancelled_observation_rolls_back(observation):
+    import asyncio
+
+    service, node = observation
+    service.client.get_snapshot.side_effect = asyncio.CancelledError()
+    with pytest.raises(asyncio.CancelledError):
+        await service.refresh_node(node.id)
+    service.session.rollback.assert_awaited_once()
+    service.session.commit.assert_not_awaited()
+
+
+@pytest.fixture
+def instance_sync(observation):
+    from app.models.enums import DesiredInstanceState, MinecraftStatus, ObservedInstanceState
+    from app.models.instance import Instance
+    from app.repositories.instance_repository import InstanceRepository
+
+    service, node = observation
+    instance = Instance(
+        id=uuid4(),
+        name="known",
+        compute_node_id=node.id,
+        desired_state=DesiredInstanceState.STOPPED,
+        observed_state=ObservedInstanceState.RUNNING,
+        observed_runtime_slot=2,
+        observed_runtime_ip="10.0.0.2",
+        observed_external_port=25566,
+        minecraft_status=MinecraftStatus.ONLINE,
+        last_observed_at=node.last_observed_at,
+        last_error="unrelated lifecycle error",
+    )
+    service.instances = AsyncMock(spec=InstanceRepository)
+    service.instances.list_by_node.return_value = [instance]
+    return service, node, instance
+
+
+@pytest.mark.parametrize(
+    "state",
+    [
+        "running",
+        "stopped",
+        "paused",
+        "missing",
+        "unknown",
+        "starting",
+        "stopping",
+        "error",
+        "future-state",
+    ],
+)
+async def test_instance_state_runtime_and_desired_state(instance_sync, state):
+    from app.schemas.agent import AgentInstance
+
+    service, node, instance = instance_sync
+    service.client.get_snapshot.return_value.instances = [
+        AgentInstance.model_validate(
+            {
+                "name": "known",
+                "state": state,
+                "runtime": {"slot": 1, "ip": "10.0.0.1", "external_port": 25565},
+                "minecraft_status": "offline",
+            }
+        )
+    ]
+    await service.refresh_node(node.id)
+    assert instance.observed_state.value == (
+        state if state in {"running", "stopped", "paused", "missing", "unknown"} else "unknown"
+    )
+    assert instance.desired_state.value == "stopped"
+    assert instance.observed_runtime_slot == 1
+    assert instance.observed_runtime_ip == "10.0.0.1"
+    assert instance.observed_external_port == 25565
+    assert instance.minecraft_status.value == "offline"
+    assert instance.last_observed_at == node.last_seen_at
+    assert instance.last_error == "unrelated lifecycle error"
+    service.instances.flush.assert_awaited_once()
+
+
+async def test_missing_in_complete_inventory(instance_sync):
+    service, node, instance = instance_sync
+    service.client.get_snapshot.return_value.instances = []
+    await service.refresh_node(node.id)
+    assert instance.observed_state.value == "missing"
+    assert instance.observed_runtime_slot is None
+    assert instance.observed_runtime_ip is None
+    assert instance.observed_external_port is None
+    assert instance.desired_state.value == "stopped"
+    assert instance.last_observed_at == node.last_seen_at
+
+
+@pytest.mark.parametrize("inventory", [None, []])
+async def test_partial_inventory_preserves_instances(instance_sync, inventory):
+    service, node, instance = instance_sync
+    before = instance.last_observed_at
+    snapshot = service.client.get_snapshot.return_value
+    snapshot.instances = inventory
+    snapshot.errors = {"instances": "private remote error"}
+    await service.refresh_node(node.id)
+    assert instance.observed_state.value == "running"
+    assert instance.observed_runtime_slot == 2
+    assert instance.last_observed_at == before
+    service.instances.list_by_node.assert_not_awaited()
+
+
+async def test_health_partial_still_syncs_instances_and_detects_orphan(instance_sync, caplog):
+    from app.schemas.agent import AgentInstance
+
+    service, node, instance = instance_sync
+    snapshot = service.client.get_snapshot.return_value
+    snapshot.node_health = None
+    snapshot.errors = {"node_health": "private error"}
+    snapshot.instances = [
+        AgentInstance(name="known", state="stopped"),
+        AgentInstance(name="private-orphan-name", state="running"),
+    ]
+    await service.refresh_node(node.id)
+    assert node.reachability == NodeReachability.ONLINE
+    assert node.observed_health == NodeHealth.DEGRADED
+    assert instance.observed_state.value == "stopped"
+    assert instance.observed_runtime_slot is None
+    assert instance.minecraft_status.value == "online"  # No Minecraft status in real summary.
+    assert "node.orphan_instance.detected" in caplog.text
+    assert "private-orphan-name" not in caplog.text
+    service.session.add.assert_not_called()
+
+
+async def test_offline_does_not_erase_instance_state(instance_sync):
+    service, node, instance = instance_sync
+    service.offline_threshold = 1
+    service.client.get_snapshot.side_effect = AgentUnavailableError()
+    before = instance.last_observed_at
+    with pytest.raises(AgentUnavailableError):
+        await service.refresh_node(node.id)
+    assert node.reachability == NodeReachability.OFFLINE
+    assert instance.observed_state.value == "running"
+    assert instance.last_observed_at == before
+    service.instances.list_by_node.assert_not_awaited()

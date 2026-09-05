@@ -27,13 +27,19 @@ class Settings(BaseSettings):
     agent_connect_timeout: float = Field(default=5.0, validation_alias="AGENT_CONNECT_TIMEOUT")
     agent_read_timeout: float = Field(default=30.0, validation_alias="AGENT_READ_TIMEOUT")
 
-    node_poll_interval: float = Field(default=10.0, validation_alias="NODE_POLL_INTERVAL")
-    node_offline_threshold: float = Field(default=30.0, validation_alias="NODE_OFFLINE_THRESHOLD")
-    node_max_backoff: float = Field(default=300.0, validation_alias="NODE_MAX_BACKOFF")
-
-    reconciliation_interval: float = Field(
-        default=15.0, validation_alias="RECONCILIATION_INTERVAL"
+    node_observation_max_age: float = Field(
+        default=60.0, gt=0, allow_inf_nan=False, validation_alias="NODE_OBSERVATION_MAX_AGE"
     )
+
+    node_poll_interval: float = Field(
+        default=10.0, gt=0, allow_inf_nan=False, validation_alias="NODE_POLL_INTERVAL"
+    )
+    node_offline_threshold: int = Field(default=30, ge=1, validation_alias="NODE_OFFLINE_THRESHOLD")
+    node_max_backoff: float = Field(
+        default=300.0, gt=0, allow_inf_nan=False, validation_alias="NODE_MAX_BACKOFF"
+    )
+
+    reconciliation_interval: float = Field(default=15.0, validation_alias="RECONCILIATION_INTERVAL")
     reconciliation_retry_limit: int = Field(
         default=3, validation_alias="RECONCILIATION_RETRY_LIMIT"
     )

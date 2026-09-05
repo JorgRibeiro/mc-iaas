@@ -26,3 +26,15 @@ class AgentResponseError(AgentError):
 
 class AgentCredentialUnavailableError(AgentError):
     message = "Agent credential unavailable or invalid"
+
+
+class AgentNotFoundError(AgentError):
+    message = "Agent workload not found"
+
+
+class AgentConflictError(AgentError):
+    message = "Agent rejected lifecycle or capacity conflict"
+
+
+class AgentValidationError(AgentError):
+    message = "Agent rejected workload parameters"
