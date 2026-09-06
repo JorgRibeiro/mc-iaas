@@ -104,7 +104,7 @@ Dentro de cada VM, cloud-init prepara usuário, disco de dados, Java, configura�
 
 A equipe validou o fluxo frontend no RAYLANDSON → solicitação de criação/inicialização → Agent no JORGE → libvirt/KVM → Minecraft disponível → conexão de cliente real. Também relatou STOP, DELETE e visualização de métricas reais. Essa implantação é funcional, não uma arquitetura futura.
 
-Há uma distinção operacional: o `compute-agent/start.sh` versionado ainda inicia em `127.0.0.1:8000`. O acesso LAN relatado depende da configuração de execução no host; usar esse script sem adaptação não reproduz sozinho o deploy distribuído.
+Há uma distinção operacional: o `compute-agent/start.sh` versionado ainda inicia em `127.0.0.1:8000`. O deploy real informado usa `0.0.0.0:8000`; usar esse script sem adaptação não reproduz sozinho o deploy distribuído.
 
 ## Lifecycle de uma instância
 
@@ -265,7 +265,7 @@ O histórico de Events é persistente; isso não implica histórico de CPU, mem�
 
 ## Segurança
 
-O Control Plane usa `Authorization: Bearer <token>` nas chamadas administrativas ao Agent. O banco guarda `credential_ref`, não o token. Para a referência `jorge`, o SecretProvider resolve `MC_IAAS_AGENT_TOKEN_JORGE` no ambiente ou no `.env` local do backend.
+O Control Plane usa `Authorization: Bearer <token>` nas chamadas administrativas ao Agent. O banco guarda `credential_ref`, não o token. Para `credential_ref=jorge-agent`, o EnvironmentSecretProvider resolve `MC_IAAS_AGENT_TOKEN_JORGE_AGENT` no ambiente ou no `.env` local do backend.
 
 No JORGE, o token fica em `/srv/mc-iaas/secrets/agent-api-token`, fora do Git. O Agent compara tokens com `secrets.compare_digest`; apenas `/health` é público, e sua documentação OpenAPI está desabilitada. HTTP administrativo e WebSockets exigem autenticação.
 
@@ -273,7 +273,7 @@ Secrets RCON são criados em arquivos `0600`, dentro de diretório `0700`. O `us
 
 O Control Plane descarta a senha de VM gerada pelo Agent, não a persiste e não a entrega ao frontend. Tokens e passwords nunca devem entrar nas variáveis `VITE_*`, pois elas são públicas no bundle. Responses e eventos públicos omitem campos internos de credenciais e metadata de operações.
 
-Na implantação relatada, o firewall do JORGE permite a porta 8000 somente ao RAYLANDSON, e RCON não é público. O Compose versionado publica PostgreSQL apenas em `127.0.0.1:5432`. As regras efetivas do firewall são configuração externa ao repositório.
+Na implantação relatada, o UFW do JORGE restringe o acesso LAN à porta TCP 8000 ao RAYLANDSON (`192.168.1.4`). Essa porta não deve ser exposta à Internet; a autenticação Bearer continua obrigatória nas chamadas administrativas. RCON não é público. O Compose versionado publica PostgreSQL apenas em `127.0.0.1:5432`. As regras efetivas do firewall são configuração externa ao repositório.
 
 O Compose contém uma senha fixa de desenvolvimento: ela não representa configuração segura de produção nem comprova a senha do laboratório. Credenciais de implantação devem permanecer em configuração local restrita. A API do Control Plane/dashboard ainda não possui autenticação de usuário; CORS limita origens do navegador, mas não substitui autenticação. A LAN relatada usa HTTP sem TLS.
 
@@ -329,10 +329,10 @@ No JORGE, com esses pré-requisitos e o token local configurados:
 cd compute-agent
 python3 -m venv .venv
 .venv/bin/python -m pip install -e '.[compute,dev]'
-.venv/bin/python -m uvicorn jorge_agent.main:app --host 192.168.1.22 --port 8000
+.venv/bin/python -m uvicorn jorge_agent.main:app --host 0.0.0.0 --port 8000
 ```
 
-Esse comando explicita o bind LAN, pressupõe rede/pools/firewall ativos e deve usar a restrição de acesso descrita acima. Para operação local, `./start.sh` prepara os componentes já instalados e inicia em loopback. `./stop.sh` para o Agent; não para as VMs.
+O bind `0.0.0.0:8000` escuta em todas as interfaces IPv4, permitindo acesso por loopback e pela LAN. O comando pressupõe rede/pools/firewall ativos, com UFW restringindo TCP 8000 ao RAYLANDSON (`192.168.1.4`) na LAN, sem exposição à Internet e com autenticação Bearer obrigatória nas chamadas administrativas. Para operação local, `./start.sh` prepara os componentes já instalados e inicia em loopback. `./stop.sh` para o Agent; não para as VMs.
 
 ### Backend e banco
 
@@ -353,7 +353,7 @@ docker compose up -d postgres
 .venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8001 --workers 1
 ```
 
-Cadastre o Compute Node por `POST /api/v1/nodes`, com `name=JORGE`, `endpoint=http://192.168.1.22:8000`, `credential_ref=jorge` e `enabled=true`. O token correspondente deve existir apenas no ambiente/`.env` do backend e no arquivo local do Agent. Aguarde o nó aparecer online e ready antes de criar instâncias. `/health` verifica o processo; `/ready` verifica acesso ao banco.
+Cadastre o Compute Node por `POST /api/v1/nodes`, com `name=JORGE`, `endpoint=http://192.168.1.22:8000`, `credential_ref=jorge-agent` e `enabled=true`. O token correspondente deve existir apenas no ambiente/`.env` do backend e no arquivo local do Agent. Aguarde o nó aparecer online e ready antes de criar instâncias. `/health` verifica o processo; `/ready` verifica acesso ao banco.
 
 ### Frontend
 
@@ -379,7 +379,7 @@ NITRO_PRESET=node-server npm run build
 HOST=0.0.0.0 PORT=8080 node .output/server/index.mjs
 ```
 
-O preset explícito seleciona a saída Node. Mudanças em `VITE_*` exigem novo build. Para desenvolvimento visual sem backend, use `VITE_CONTROL_PLANE_MODE=mock` e `npm run dev -- --port 8080`.
+O `vite.config.ts` atual não fixa o preset `node-server`; por isso, `NITRO_PRESET=node-server` é necessário neste comando para selecionar explicitamente a saída Nitro/Node. Mudanças em `VITE_*` exigem novo build. Para desenvolvimento visual sem backend, use `VITE_CONTROL_PLANE_MODE=mock` e `npm run dev -- --port 8080`.
 
 ## Serviços systemd
 
